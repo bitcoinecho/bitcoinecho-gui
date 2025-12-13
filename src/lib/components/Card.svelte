@@ -10,13 +10,13 @@
   let { title, children, class: className = '' }: Props = $props();
 </script>
 
-<div class="rounded-lg border border-echo-border bg-echo-surface {className}">
+<div class="bg-echo-elevated/50 {className}">
   {#if title}
-    <div class="border-b border-echo-border px-4 py-3">
-      <h3 class="text-sm font-medium text-echo-text">{title}</h3>
+    <div class="mb-4">
+      <h3 class="font-mono text-xs uppercase tracking-wider text-echo-dim">{title}</h3>
     </div>
   {/if}
-  <div class="p-4">
+  <div>
     {@render children()}
   </div>
 </div>

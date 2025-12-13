@@ -14,7 +14,7 @@
   $effect(() => {
     const timer = setTimeout(() => {
       connected = true;
-      blockHeight = 873291;
+      blockHeight = 874571;
     }, 1500);
 
     return () => clearTimeout(timer);
@@ -27,7 +27,7 @@
   <div class="flex flex-1 overflow-hidden">
     <Sidebar />
 
-    <main class="flex-1 overflow-y-auto p-6">
+    <main class="flex-1 overflow-y-auto px-12 py-10">
       {@render children()}
     </main>
   </div>

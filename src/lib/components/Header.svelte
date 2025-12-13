@@ -1,7 +1,4 @@
 <script lang="ts">
-  import Badge from './Badge.svelte';
-  import Spinner from './Spinner.svelte';
-
   interface Props {
     connected?: boolean;
     syncing?: boolean;
@@ -11,44 +8,32 @@
   let { connected = false, syncing = false, blockHeight = 0 }: Props = $props();
 </script>
 
-<header class="sticky top-0 z-50 border-b border-echo-border bg-echo-bg/95 backdrop-blur">
-  <div class="flex h-14 items-center justify-between px-4">
+<header class="border-b border-echo-border bg-echo-bg">
+  <div class="flex h-14 items-center justify-between px-6">
     <!-- Logo -->
-    <div class="flex items-center gap-3">
-      <a href="/" class="flex items-center gap-2">
-        <img src="/logo.jpg" alt="Bitcoin Echo" class="h-8 w-8 rounded invert" />
-        <span class="text-lg font-semibold text-echo-text">Bitcoin Echo</span>
-      </a>
-    </div>
+    <a href="/" class="group flex items-center gap-3 transition-opacity duration-300 hover:opacity-70">
+      <img src="/logo.jpg" alt="Bitcoin Echo" class="h-7 w-7 invert" />
+      <span class="font-mono text-sm uppercase tracking-wide text-echo-muted">Bitcoin Echo</span>
+    </a>
 
     <!-- Status -->
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-8 font-mono text-sm uppercase tracking-wide">
       {#if syncing}
-        <div class="flex items-center gap-2 text-sm text-echo-muted">
-          <Spinner size="sm" />
-          <span>Syncing...</span>
-        </div>
+        <span class="text-echo-muted">Syncing...</span>
       {/if}
 
       {#if blockHeight > 0}
-        <div class="text-sm text-echo-muted">
-          Block <span class="font-mono text-echo-text">{blockHeight.toLocaleString()}</span>
-        </div>
+        <span class="text-echo-muted">
+          Block <span class="text-echo-text">{blockHeight.toLocaleString()}</span>
+        </span>
       {/if}
 
-      <Badge variant={connected ? 'success' : 'error'}>
-        {#if connected}
-          <span class="flex items-center gap-1.5">
-            <span class="h-1.5 w-1.5 rounded-full bg-green-400"></span>
-            Connected
-          </span>
-        {:else}
-          <span class="flex items-center gap-1.5">
-            <span class="h-1.5 w-1.5 rounded-full bg-red-400"></span>
-            Disconnected
-          </span>
-        {/if}
-      </Badge>
+      <span class="flex items-center gap-2 {connected ? 'text-echo-muted' : 'text-echo-dim'}">
+        <span
+          class="h-2 w-2 rounded-full transition-colors duration-500 {connected ? 'bg-echo-text' : 'bg-echo-dim'}"
+        ></span>
+        {connected ? 'Connected' : 'Offline'}
+      </span>
     </div>
   </div>
 </header>

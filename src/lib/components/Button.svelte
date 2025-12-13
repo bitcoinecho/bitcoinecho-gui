@@ -12,18 +12,18 @@
     $props();
 
   const baseStyles =
-    'inline-flex items-center justify-center font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-btc-orange focus:ring-offset-2 focus:ring-offset-echo-bg disabled:opacity-50 disabled:pointer-events-none';
+    'inline-flex items-center justify-center font-mono text-xs uppercase tracking-wide transition-all duration-300 focus:outline-none disabled:opacity-50 disabled:pointer-events-none';
 
   const variants = {
-    primary: 'bg-btc-orange text-echo-bg hover:bg-btc-orange-light',
-    secondary: 'bg-echo-surface text-echo-text border border-echo-border hover:bg-echo-elevated',
-    ghost: 'text-echo-muted hover:text-echo-text hover:bg-echo-surface'
+    primary: 'border border-echo-border bg-transparent text-echo-text hover:border-echo-accent hover:text-echo-accent',
+    secondary: 'border border-echo-border text-echo-muted hover:border-echo-dim hover:text-echo-text',
+    ghost: 'text-echo-muted hover:text-echo-text'
   };
 
   const sizes = {
-    sm: 'h-8 px-3 text-sm rounded',
-    md: 'h-10 px-4 text-sm rounded-md',
-    lg: 'h-12 px-6 text-base rounded-lg'
+    sm: 'px-4 py-2',
+    md: 'px-5 py-2.5',
+    lg: 'px-6 py-3'
   };
 </script>
 
