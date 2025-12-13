@@ -2,6 +2,8 @@
 
 **A window into the last Bitcoin implementation.**
 
+![Bitcoin Echo GUI](bitcoinecho-gui.png)
+
 Most software wants to grow forever. Bitcoin Echo wants to finish.
 
 This GUI is how you see it — a browser-based interface to a running [Bitcoin Echo](https://github.com/bitcoinecho/bitcoin-echo) node. It communicates exclusively via JSON-RPC. No wallet. No bloat. Just Bitcoin, visible.
