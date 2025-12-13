@@ -2,7 +2,7 @@
 
 **A window into the last Bitcoin implementation.**
 
-![Bitcoin Echo GUI](bitcoinecho-gui.png)
+![Bitcoin Echo GUI](bitcoinecho-gui-cap.png)
 
 Most software wants to grow forever. Bitcoin Echo wants to finish.
 
