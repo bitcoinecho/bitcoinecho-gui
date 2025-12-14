@@ -3,9 +3,22 @@
     connected?: boolean;
     syncing?: boolean;
     blockHeight?: number;
+    hashrate?: number;
   }
 
-  let { connected = false, syncing = false, blockHeight = 0 }: Props = $props();
+  let { connected = false, syncing = false, blockHeight = 0, hashrate = 0 }: Props = $props();
+
+  // Format hashrate with appropriate unit (EH/s or ZH/s)
+  function formatHashrate(ehps: number): { value: string; unit: string } {
+    if (ehps === 0) return { value: '—', unit: '' };
+    // If >= 1000 EH/s, show as ZH/s
+    if (ehps >= 1000) {
+      return { value: (ehps / 1000).toFixed(2), unit: 'ZH/s' };
+    }
+    return { value: ehps.toFixed(1), unit: 'EH/s' };
+  }
+
+  const hashrateDisplay = $derived(formatHashrate(hashrate));
 </script>
 
 <header class="border-b border-echo-border bg-echo-bg">
@@ -20,6 +33,12 @@
     <div class="flex items-center gap-8 font-mono text-sm uppercase tracking-wide">
       {#if syncing}
         <span class="text-echo-muted">Syncing...</span>
+      {/if}
+
+      {#if hashrate > 0}
+        <span class="text-echo-muted">
+          <span class="text-echo-text">{hashrateDisplay.value}</span> {hashrateDisplay.unit}
+        </span>
       {/if}
 
       {#if blockHeight > 0}

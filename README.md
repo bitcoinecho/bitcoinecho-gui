@@ -52,7 +52,33 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173)
 
-**Note:** The GUI expects a Bitcoin Echo node running on `localhost:8332`. Without a node, you'll see mock data.
+### Running with Observer Mode
+
+![Observer Mode](bitcoinecho-gui-observer.png)
+
+To use the live observer UI, you need a Bitcoin Echo node running in observer mode:
+
+**Terminal 1 — Start the node:**
+```bash
+cd bitcoin-echo
+./echo --observe
+```
+
+**Terminal 2 — Start the GUI:**
+```bash
+cd bitcoinecho-gui
+npm run dev
+```
+
+Then navigate to [http://localhost:5173/observer](http://localhost:5173/observer) to see live Bitcoin network activity.
+
+**What you'll see:**
+- Real-time block announcements as they propagate across the network
+- Live transaction announcements (INV messages)
+- Network statistics (peer count, uptime, message counts)
+- Current Bitcoin block height and network hashrate
+
+**Note:** The GUI expects a Bitcoin Echo node running on `localhost:8332`. Without a node, you'll see connection errors.
 
 ---
 
@@ -93,7 +119,7 @@ See [GUI_ROADMAP.md](https://github.com/bitcoinecho/bitcoinecho-org/blob/main/GU
 | Phase | Status |
 |-------|--------|
 | 0. Foundation | ✅ Complete |
-| 1. RPC Client | 🔲 Not started |
+| 1. Observer Mode | ✅ Complete |
 | 2. Mock Mode | 🔲 Not started |
 | 3. Dashboard | 🔲 Not started |
 | 4. Block Explorer | 🔲 Not started |
