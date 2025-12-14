@@ -7,6 +7,7 @@
   }
 
   const navItems: NavItem[] = [
+    { href: '/observer', label: 'Observer' },
     { href: '/', label: 'Dashboard' },
     { href: '/blocks', label: 'Blocks' },
     { href: '/broadcast', label: 'Broadcast' },
