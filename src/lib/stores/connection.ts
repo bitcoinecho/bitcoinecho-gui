@@ -386,10 +386,3 @@ export const networkHashrate: Readable<number> = derived(
 	connectionState,
 	($state) => $state.networkHashrate
 );
-
-/**
- * Auto-connect on module load (browser only)
- */
-if (typeof window !== 'undefined') {
-	connection.connect();
-}

@@ -1,10 +1,16 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
-  import { isConnected, blockHeight, networkHashrate } from '$lib/stores/connection';
+  import { connection, isConnected, blockHeight, networkHashrate } from '$lib/stores/connection';
 
   let { children } = $props();
+
+  // Auto-connect to node when app loads (browser only)
+  onMount(() => {
+    connection.connect();
+  });
 </script>
 
 <div class="flex h-screen flex-col bg-echo-bg text-echo-text">
