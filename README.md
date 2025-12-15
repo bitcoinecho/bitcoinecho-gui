@@ -143,6 +143,4 @@ MIT — Do whatever you want. This is Bitcoin.
 
 ---
 
-*Build once. Build right. Stop.*
-
-**Bitcoin Echo: The Last Implementation. Now Visible.**
+*Build once. Build right. Stop. Now Visible.*
