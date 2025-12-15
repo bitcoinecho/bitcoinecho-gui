@@ -132,6 +132,11 @@ const RECONNECT_DELAY = 5000; // 5 seconds
 let healthCheckTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
+ * Flag to skip automatic health checking (used when observer page takes over)
+ */
+let skipAutoHealthCheck = false;
+
+/**
  * Deep compare observer stats to check if they changed
  */
 function statsChanged(oldStats: ObserverStats | null, newStats: ObserverStats | null): boolean {
@@ -228,6 +233,9 @@ async function healthCheck(): Promise<void> {
  */
 function startHealthCheck(): void {
 	if (healthCheckTimer) return;
+
+	// Skip if observer page has taken over polling
+	if (skipAutoHealthCheck) return;
 
 	// Immediate first check
 	healthCheck();
@@ -335,7 +343,15 @@ export const connection = {
 	 * Stop automatic health checking (used when observer page takes over polling)
 	 */
 	stopAutoHealthCheck(): void {
+		skipAutoHealthCheck = true;
 		stopHealthCheck();
+	},
+
+	/**
+	 * Resume automatic health checking (used when leaving observer page)
+	 */
+	resumeAutoHealthCheck(): void {
+		skipAutoHealthCheck = false;
 	}
 };
 

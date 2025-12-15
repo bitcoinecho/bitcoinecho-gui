@@ -103,10 +103,17 @@
 		}
 	}
 
-	onMount(() => {
-		// Stop the connection store's automatic health check
-		// The observer page takes over with its single heartbeat
+	// Stop the connection store's automatic health check IMMEDIATELY (browser only)
+	// This must run at module level (before onMount) to prevent race condition where
+	// +layout.svelte's onMount triggers connection.connect() which fires an immediate
+	// health check before this page's onMount can stop it.
+	// Guard with browser check to prevent SSR warnings about fetch.
+	if (typeof window !== 'undefined') {
 		connection.stopAutoHealthCheck();
+	}
+
+	onMount(() => {
+		// The observer page takes over with its single heartbeat
 
 		// Initial heartbeat
 		heartbeat();
@@ -126,6 +133,7 @@
 		if (timeInterval) clearInterval(timeInterval);
 
 		// Resume automatic health checking when leaving observer page
+		connection.resumeAutoHealthCheck();
 		connection.connect();
 	});
 </script>
