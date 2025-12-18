@@ -13,7 +13,8 @@ import type {
 	RPCConfig,
 	ObserverStats,
 	ObservedBlocksResponse,
-	ObservedTxsResponse
+	ObservedTxsResponse,
+	BlockchainInfo
 } from './types';
 
 /**
@@ -269,4 +270,42 @@ export async function getObserverDataBatch(config?: Partial<RPCConfig>): Promise
 	);
 
 	return { stats, blocks, txs };
+}
+
+/*
+ * ============================================================================
+ * VALIDATION NODE RPC METHODS
+ * Session 2.2: Sync View
+ * ============================================================================
+ */
+
+/**
+ * Get blockchain information
+ *
+ * Returns current blockchain state including sync progress, block count,
+ * chain work, and disk usage.
+ *
+ * @param config - RPC configuration (optional)
+ * @returns Blockchain information
+ */
+export async function getBlockchainInfo(config?: Partial<RPCConfig>): Promise<BlockchainInfo> {
+	return rpcCall<BlockchainInfo>('getblockchaininfo', [], config);
+}
+
+/**
+ * Test if node supports validation mode RPCs
+ *
+ * Attempts to call getblockchaininfo to verify the node is reachable
+ * and supports full node RPC methods.
+ *
+ * @param config - RPC configuration (optional)
+ * @returns true if connection successful
+ */
+export async function testValidationConnection(config?: Partial<RPCConfig>): Promise<boolean> {
+	try {
+		await getBlockchainInfo(config);
+		return true;
+	} catch {
+		return false;
+	}
 }

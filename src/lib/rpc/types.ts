@@ -98,3 +98,24 @@ export interface RPCConfig {
 	endpoint: string; // RPC endpoint URL (e.g., "http://localhost:8332")
 	timeout: number; // Request timeout in milliseconds
 }
+
+/**
+ * Blockchain info response
+ *
+ * Returned by: getblockchaininfo
+ */
+export interface BlockchainInfo {
+	chain: string; // Network name (e.g., "main", "test", "regtest")
+	blocks: number; // Current number of validated blocks
+	headers: number; // Number of headers in chain
+	bestblockhash: string; // Hash of the best (tip) block
+	difficulty: number; // Current difficulty
+	mediantime: number; // Median time past (MTP)
+	verificationprogress: number; // Sync progress (0.0 - 1.0)
+	initialblockdownload: boolean; // True if still syncing
+	chainwork: string; // Total chain work (hex)
+	size_on_disk: number; // Disk usage in bytes
+	pruned: boolean; // True if pruning is enabled
+	pruneheight?: number; // Lowest block with data (if pruned)
+	prune_target_size?: number; // Prune target in bytes (if pruned)
+}

@@ -1,19 +1,31 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { onboarding } from '$lib/stores/onboarding';
+  import { onboarding, isValidateMode, isObserverMode } from '$lib/stores/onboarding';
 
   interface NavItem {
     href: string;
     label: string;
+    validateOnly?: boolean;  // Only show in validate mode
+    observerOnly?: boolean;  // Only show in observer mode
   }
 
   const navItems: NavItem[] = [
+    { href: '/sync', label: 'Sync', validateOnly: true },
     { href: '/observer', label: 'Observer' },
     { href: '/', label: 'Dashboard' },
     { href: '/blocks', label: 'Blocks' },
     { href: '/broadcast', label: 'Broadcast' },
     { href: '/console', label: 'Console' }
   ];
+
+  // Filter nav items based on mode
+  const visibleNavItems = $derived(
+    navItems.filter(item => {
+      if (item.validateOnly && !$isValidateMode) return false;
+      if (item.observerOnly && !$isObserverMode) return false;
+      return true;
+    })
+  );
 
   function isActive(href: string, pathname: string): boolean {
     if (href === '/') return pathname === '/';
@@ -27,7 +39,7 @@
 
 <aside class="w-52 border-r border-echo-border">
   <nav class="flex flex-col py-8">
-    {#each navItems as item}
+    {#each visibleNavItems as item}
       {@const active = isActive(item.href, $page.url.pathname)}
       <a
         href={item.href}
