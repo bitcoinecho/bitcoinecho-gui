@@ -3,14 +3,50 @@
 @tailwind utilities;
 
 @layer base {
+  /* Theme CSS Variables - matching bitcoinecho.org */
+  :root,
+  [data-theme="dark"] {
+    --color-bg: #0a0a0a;
+    --color-bg-elevated: #111111;
+    --color-surface: #161616;
+    --color-border: #222222;
+    --color-text: #e8e8e8;
+    --color-text-muted: #888888;
+    --color-text-dim: #555555;
+    --color-accent: #ffffff;
+    --color-glow: rgba(255, 255, 255, 0.03);
+    --color-logo-invert: invert(1);
+  }
+
+  [data-theme="light"] {
+    --color-bg: #f8f6f3;
+    --color-bg-elevated: #ffffff;
+    --color-surface: #eeebe6;
+    --color-border: #d4d0c8;
+    --color-text: #1a1a1a;
+    --color-text-muted: #5a5a5a;
+    --color-text-dim: #8a8a8a;
+    --color-accent: #0a0a0a;
+    --color-glow: rgba(0, 0, 0, 0.03);
+    --color-logo-invert: invert(0);
+  }
+
   * {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
+  html {
+    background-color: var(--color-bg);
+    transition: background-color 0.3s ease;
+  }
+
   body {
     font-family: theme('fontFamily.serif');
     line-height: 1.7;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 
   /* Monospace for data/technical elements */
@@ -18,9 +54,14 @@
     font-family: theme('fontFamily.mono');
   }
 
-  /* Selection */
-  ::selection {
-    background: rgba(255, 255, 255, 0.15);
-    color: #ffffff;
+  /* Selection - theme aware */
+  [data-theme="dark"] ::selection {
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--color-accent);
+  }
+
+  [data-theme="light"] ::selection {
+    background: rgba(0, 0, 0, 0.15);
+    color: var(--color-accent);
   }
 }

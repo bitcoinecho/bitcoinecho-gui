@@ -15,3 +15,6 @@ export { default as ConnectionSettings } from './components/ConnectionSettings.s
 
 // Help components
 export { default as ObserverHelp } from './components/ObserverHelp.svelte';
+
+// Theme components
+export { default as ThemeToggle } from './components/ThemeToggle.svelte';

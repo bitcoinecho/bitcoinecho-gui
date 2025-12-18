@@ -2,7 +2,7 @@
 
 **A window into the last Bitcoin implementation.**
 
-![Bitcoin Echo GUI](bitcoinecho-gui-cap.png)
+![Bitcoin Echo GUI](bitcoinecho-gui-cap.jpg)
 
 Most software wants to grow forever. Bitcoin Echo wants to finish.
 
@@ -54,7 +54,7 @@ Open [http://localhost:5173](http://localhost:5173)
 
 ### Running with Observer Mode
 
-![Observer Mode](bitcoinecho-gui-observer.png)
+![Observer Mode](bitcoinecho-gui-observer.jpg)
 
 To use the live observer UI, you need a Bitcoin Echo node running in observer mode:
 

@@ -1,11 +1,25 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0a0a0a" />
     <title>Bitcoin Echo</title>
+
+    <!-- Early theme detection to prevent flash -->
+    <script>
+      (function() {
+        const saved = localStorage.getItem('bitcoin-echo-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved);
+          document.querySelector('meta[name="theme-color"]')?.setAttribute('content', saved === 'dark' ? '#0a0a0a' : '#f8f6f3');
+        } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+          document.documentElement.setAttribute('data-theme', 'light');
+          document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f8f6f3');
+        }
+      })();
+    </script>
 
     <!-- Fonts (same as bitcoinecho.org) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

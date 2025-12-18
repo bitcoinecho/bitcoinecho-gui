@@ -340,6 +340,36 @@ export const connection = {
 	},
 
 	/**
+	 * Fetch and update external network data (block height, hashrate) from mempool.space
+	 * Called periodically, respects the 30-second refresh interval
+	 */
+	async fetchExternalData(): Promise<void> {
+		const state = get(connectionState);
+		const now = Date.now();
+
+		// Only fetch if enough time has passed since last fetch
+		if (state.blockHeight !== 0 && now - state.lastBlockHeightFetch < BLOCK_HEIGHT_REFRESH_INTERVAL) {
+			return;
+		}
+
+		// Fetch both in parallel
+		const [height, hashrate] = await Promise.all([
+			fetchBlockHeight(),
+			fetchNetworkHashrate()
+		]);
+
+		// Update state if we got valid data
+		if (height !== 0 || hashrate !== 0) {
+			connectionState.update((s) => ({
+				...s,
+				blockHeight: height || s.blockHeight,
+				networkHashrate: hashrate || s.networkHashrate,
+				lastBlockHeightFetch: now
+			}));
+		}
+	},
+
+	/**
 	 * Stop automatic health checking (used when observer page takes over polling)
 	 */
 	stopAutoHealthCheck(): void {

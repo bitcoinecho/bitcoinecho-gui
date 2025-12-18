@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ConnectionStatus as ConnectionStatusType } from '$lib/rpc/types';
   import ConnectionStatus from './ConnectionStatus.svelte';
+  import ThemeToggle from './ThemeToggle.svelte';
 
   interface Props {
     status?: ConnectionStatusType;
@@ -29,7 +30,7 @@
   <div class="flex h-14 items-center justify-between px-6">
     <!-- Logo -->
     <a href="/" class="group flex items-center gap-3 transition-opacity duration-300 hover:opacity-70">
-      <img src="/logo.jpg" alt="Bitcoin Echo" class="h-7 w-7 invert" />
+      <img src="/logo.jpg" alt="Bitcoin Echo" class="h-7 w-7" style="filter: var(--color-logo-invert);" />
       <span class="font-mono text-sm uppercase tracking-wide text-echo-muted">Bitcoin Echo</span>
     </a>
 
@@ -52,6 +53,8 @@
       {/if}
 
       <ConnectionStatus {status} {error} />
+
+      <ThemeToggle />
     </div>
   </div>
 </header>

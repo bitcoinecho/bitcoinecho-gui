@@ -1,20 +1,20 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./src/**/*.{html,js,svelte,ts}'],
-  darkMode: 'class',
+  darkMode: ['selector', '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
-        // Bitcoin Echo brand colors - adjusted for better contrast
+        // Bitcoin Echo brand colors - using CSS variables for theme support
         echo: {
-          bg: '#0a0a0a',
-          elevated: '#111111',
-          surface: '#161616',
-          border: '#222222',
-          text: '#f0f0f0',       // Brighter
-          muted: '#a0a0a0',      // Brighter (was #888888)
-          dim: '#666666',        // Brighter (was #555555)
-          accent: '#ffffff'
+          bg: 'var(--color-bg)',
+          elevated: 'var(--color-bg-elevated)',
+          surface: 'var(--color-surface)',
+          border: 'var(--color-border)',
+          text: 'var(--color-text)',
+          muted: 'var(--color-text-muted)',
+          dim: 'var(--color-text-dim)',
+          accent: 'var(--color-accent)'
         }
       },
       fontFamily: {

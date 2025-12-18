@@ -78,6 +78,10 @@
 			// This is more direct than calling connection.updateStats()
 			connection.updateStatsFromBatch(stats);
 
+			// Also fetch external network data (block height, hashrate) for header display
+			// This respects its own 30-second refresh interval internally
+			connection.fetchExternalData();
+
 			// Process blocks
 			const newBlocks = blocksData.blocks;
 			const reversedBlocks = [...newBlocks].reverse();
@@ -158,9 +162,9 @@
 	<!-- Header -->
 	<div class="flex items-center justify-between flex-wrap gap-4">
 		<div>
-			<h1 class="text-3xl font-light text-white">Observer Mode</h1>
+			<h1 class="text-3xl font-light text-echo-text">Observer Mode</h1>
 			<div class="flex items-center gap-4 mt-1">
-				<p class="text-gray-400">Watch the Bitcoin network breathe</p>
+				<p class="text-echo-muted">Watch the Bitcoin network breathe</p>
 				<ObserverHelp />
 			</div>
 		</div>
@@ -180,7 +184,7 @@
 
 	<!-- Status Message -->
 	{#if $isConnected}
-		<div class="bg-echo-bg-secondary border border-echo-border rounded px-4 py-3">
+		<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 			<div class="flex items-center gap-3">
 				{#if $peerCount === 0}
 					<Spinner size="sm" />
@@ -196,36 +200,36 @@
 	{#if !$isConnected}
 		<div class="flex items-center justify-center p-12">
 			<Spinner size="md" />
-			<span class="ml-3 text-gray-400">Connecting to observer node...</span>
+			<span class="ml-3 text-echo-muted">Connecting to observer node...</span>
 		</div>
 	{/if}
 
 	{#if $isConnected}
 		<div class="grid grid-cols-1 md:grid-cols-4 gap-4" style="contain: layout;">
 			<Card>
-				<div class="text-sm text-gray-400 mb-1">Uptime</div>
-				<div class="stat-value text-2xl font-light text-white">
+				<div class="text-sm text-echo-muted mb-1">Uptime</div>
+				<div class="stat-value text-2xl font-light text-echo-text">
 					{$uptimeMinutes}m
 				</div>
 			</Card>
 
 			<Card>
-				<div class="text-sm text-gray-400 mb-1">Peers</div>
-				<div class="stat-value text-2xl font-light text-white">
+				<div class="text-sm text-echo-muted mb-1">Peers</div>
+				<div class="stat-value text-2xl font-light text-echo-text">
 					{$peerCount}
 				</div>
 			</Card>
 
 			<Card>
-				<div class="text-sm text-gray-400 mb-1">Blocks Seen</div>
-				<div class="stat-value text-2xl font-light text-white">
+				<div class="text-sm text-echo-muted mb-1">Blocks Seen</div>
+				<div class="stat-value text-2xl font-light text-echo-text">
 					{blocks.length}
 				</div>
 			</Card>
 
 			<Card>
-				<div class="text-sm text-gray-400 mb-1">INV Messages</div>
-				<div class="stat-value text-2xl font-light text-white">
+				<div class="text-sm text-echo-muted mb-1">INV Messages</div>
+				<div class="stat-value text-2xl font-light text-echo-text">
 					{$invCount}
 				</div>
 			</Card>
@@ -237,10 +241,10 @@
 		<!-- Live Block Feed -->
 		<Card>
 			<div class="flex items-center justify-between mb-4">
-				<h2 class="text-xl font-light text-white">Live Block Feed</h2>
+				<h2 class="text-xl font-light text-echo-text">Live Block Feed</h2>
 				<div class="flex items-center space-x-2">
 					<div class="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
-					<span class="text-sm text-gray-400">Live</span>
+					<span class="text-sm text-echo-muted">Live</span>
 				</div>
 			</div>
 
@@ -248,25 +252,25 @@
 				<div class="space-y-3 max-h-[600px] overflow-y-auto">
 					{#each blocks as block (block.hash)}
 						<div
-							class="p-3 bg-gray-800/50 rounded border border-gray-700 hover:border-gray-600 transition-colors"
+							class="p-3 bg-echo-surface rounded border border-echo-border hover:border-echo-dim transition-colors"
 						>
 							<div class="mb-2">
 								<Hash value={block.hash} truncate={true} copyable={true} explorerUrl={`https://mempool.space/block/${block.hash}`} expand={true} />
 							</div>
 							<div class="flex items-center justify-between text-xs">
-								<span class="text-gray-400">Announced by {block.peer_count} peer{block.peer_count !== 1 ? 's' : ''}</span>
-								<span class="text-gray-500">{formatTimeAgo(block.first_seen, now)}</span>
+								<span class="text-echo-muted">Announced by {block.peer_count} peer{block.peer_count !== 1 ? 's' : ''}</span>
+								<span class="text-echo-dim">{formatTimeAgo(block.first_seen, now)}</span>
 							</div>
 						</div>
 					{/each}
 				</div>
 			{:else if $isConnected}
-				<div class="text-center py-12 text-gray-500">
+				<div class="text-center py-12 text-echo-dim">
 					<p>Waiting for block announcements...</p>
 					<p class="text-sm mt-2">Once peers connect, blocks will appear here in real-time</p>
 				</div>
 			{:else}
-				<div class="text-center py-12 text-gray-500">
+				<div class="text-center py-12 text-echo-dim">
 					<p>Node not connected</p>
 				</div>
 			{/if}
@@ -275,10 +279,10 @@
 		<!-- Live Transaction Feed -->
 		<Card>
 			<div class="flex items-center justify-between mb-4">
-				<h2 class="text-xl font-light text-white">Live Transaction Feed</h2>
+				<h2 class="text-xl font-light text-echo-text">Live Transaction Feed</h2>
 				<div class="flex items-center space-x-2">
 					<div class="h-2 w-2 bg-blue-500 rounded-full animate-pulse"></div>
-					<span class="text-sm text-gray-400">Live</span>
+					<span class="text-sm text-echo-muted">Live</span>
 				</div>
 			</div>
 
@@ -286,19 +290,19 @@
 				<div class="space-y-2 max-h-[600px] overflow-y-auto">
 					{#each transactions as tx (tx.txid)}
 						<div
-							class="p-3 bg-gray-800/50 rounded border border-gray-700 hover:border-gray-600 transition-colors"
+							class="p-3 bg-echo-surface rounded border border-echo-border hover:border-echo-dim transition-colors"
 						>
 							<Hash value={tx.txid} truncate={true} copyable={true} explorerUrl={`https://mempool.space/tx/${tx.txid}`} expand={true} />
 						</div>
 					{/each}
 				</div>
 			{:else if $isConnected}
-				<div class="text-center py-12 text-gray-500">
+				<div class="text-center py-12 text-echo-dim">
 					<p>Waiting for transaction announcements...</p>
 					<p class="text-sm mt-2">Live mempool activity will stream here</p>
 				</div>
 			{:else}
-				<div class="text-center py-12 text-gray-500">
+				<div class="text-center py-12 text-echo-dim">
 					<p>Node not connected</p>
 				</div>
 			{/if}
@@ -308,55 +312,55 @@
 	<!-- Message Statistics (if connected) -->
 	{#if $isConnected}
 		<Card>
-			<h2 class="text-xl font-light text-white mb-4">Protocol Messages</h2>
+			<h2 class="text-xl font-light text-echo-text mb-4">Protocol Messages</h2>
 			<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
 				<div>
-					<div class="text-xs text-gray-500">VERSION</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.version ?? 0}</div>
+					<div class="text-xs text-echo-dim">VERSION</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.version ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">VERACK</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.verack ?? 0}</div>
+					<div class="text-xs text-echo-dim">VERACK</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.verack ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">PING</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.ping ?? 0}</div>
+					<div class="text-xs text-echo-dim">PING</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.ping ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">PONG</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.pong ?? 0}</div>
+					<div class="text-xs text-echo-dim">PONG</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.pong ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">ADDR</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.addr ?? 0}</div>
+					<div class="text-xs text-echo-dim">ADDR</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.addr ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">INV</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.inv ?? 0}</div>
+					<div class="text-xs text-echo-dim">INV</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.inv ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">HEADERS</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.headers ?? 0}</div>
+					<div class="text-xs text-echo-dim">HEADERS</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.headers ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">BLOCK</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.block ?? 0}</div>
+					<div class="text-xs text-echo-dim">BLOCK</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.block ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">TX</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.tx ?? 0}</div>
+					<div class="text-xs text-echo-dim">TX</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.tx ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">GETBLOCKS</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.getblocks ?? 0}</div>
+					<div class="text-xs text-echo-dim">GETBLOCKS</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.getblocks ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">GETHEADERS</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.getheaders ?? 0}</div>
+					<div class="text-xs text-echo-dim">GETHEADERS</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.getheaders ?? 0}</div>
 				</div>
 				<div>
-					<div class="text-xs text-gray-500">OTHER</div>
-					<div class="text-lg text-white">{$observerStats?.messages_received.other ?? 0}</div>
+					<div class="text-xs text-echo-dim">OTHER</div>
+					<div class="text-lg text-echo-text">{$observerStats?.messages_received.other ?? 0}</div>
 				</div>
 			</div>
 		</Card>
