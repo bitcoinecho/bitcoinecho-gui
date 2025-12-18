@@ -7,6 +7,7 @@
 	import Hash from '$lib/components/Hash.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
 	import Badge from '$lib/components/Badge.svelte';
+	import ObserverHelp from '$lib/components/ObserverHelp.svelte';
 	import type { ObservedBlock, ObservedTx } from '$lib/rpc/types';
 
 	let blocks = $state<ObservedBlock[]>([]);
@@ -155,10 +156,13 @@
 
 <div class="space-y-6">
 	<!-- Header -->
-	<div class="flex items-center justify-between">
+	<div class="flex items-center justify-between flex-wrap gap-4">
 		<div>
 			<h1 class="text-3xl font-light text-white">Observer Mode</h1>
-			<p class="text-gray-400 mt-1">Watch the Bitcoin network breathe</p>
+			<div class="flex items-center gap-4 mt-1">
+				<p class="text-gray-400">Watch the Bitcoin network breathe</p>
+				<ObserverHelp />
+			</div>
 		</div>
 
 		<div>

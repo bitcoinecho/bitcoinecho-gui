@@ -8,3 +8,10 @@ export { default as Hash } from './components/Hash.svelte';
 // Shell components
 export { default as Header } from './components/Header.svelte';
 export { default as Sidebar } from './components/Sidebar.svelte';
+
+// Connection components
+export { default as ConnectionStatus } from './components/ConnectionStatus.svelte';
+export { default as ConnectionSettings } from './components/ConnectionSettings.svelte';
+
+// Help components
+export { default as ObserverHelp } from './components/ObserverHelp.svelte';

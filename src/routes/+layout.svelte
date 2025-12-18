@@ -3,7 +3,7 @@
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
-  import { connection, isConnected, blockHeight, networkHashrate } from '$lib/stores/connection';
+  import { connection, connectionStatus, connectionError, blockHeight, networkHashrate } from '$lib/stores/connection';
 
   let { children } = $props();
 
@@ -14,7 +14,7 @@
 </script>
 
 <div class="flex h-screen flex-col bg-echo-bg text-echo-text">
-  <Header connected={$isConnected} syncing={false} blockHeight={$blockHeight} hashrate={$networkHashrate} />
+  <Header status={$connectionStatus} error={$connectionError} syncing={false} blockHeight={$blockHeight} hashrate={$networkHashrate} />
 
   <div class="flex flex-1 overflow-hidden">
     <Sidebar />

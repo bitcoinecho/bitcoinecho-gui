@@ -1,12 +1,16 @@
 <script lang="ts">
+  import type { ConnectionStatus as ConnectionStatusType } from '$lib/rpc/types';
+  import ConnectionStatus from './ConnectionStatus.svelte';
+
   interface Props {
-    connected?: boolean;
+    status?: ConnectionStatusType;
+    error?: string | null;
     syncing?: boolean;
     blockHeight?: number;
     hashrate?: number;
   }
 
-  let { connected = false, syncing = false, blockHeight = 0, hashrate = 0 }: Props = $props();
+  let { status = 'disconnected', error = null, syncing = false, blockHeight = 0, hashrate = 0 }: Props = $props();
 
   // Format hashrate with appropriate unit (EH/s or ZH/s)
   function formatHashrate(ehps: number): { value: string; unit: string } {
@@ -47,12 +51,7 @@
         </span>
       {/if}
 
-      <span class="flex items-center gap-2 {connected ? 'text-echo-muted' : 'text-echo-dim'}">
-        <span
-          class="h-2 w-2 rounded-full transition-colors duration-500 {connected ? 'bg-echo-text' : 'bg-echo-dim'}"
-        ></span>
-        {connected ? 'Connected' : 'Offline'}
-      </span>
+      <ConnectionStatus {status} {error} />
     </div>
   </div>
 </header>
