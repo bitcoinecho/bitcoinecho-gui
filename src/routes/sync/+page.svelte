@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { getBlockchainInfo } from '$lib/rpc/client';
 	import { connection, blockHeight, networkHashrate } from '$lib/stores/connection';
-	import { selectedMode } from '$lib/stores/onboarding';
+	import { detectedMode, MODE_LABELS } from '$lib/stores/nodeMode';
 	import Card from '$lib/components/Card.svelte';
 	import Hash from '$lib/components/Hash.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -174,14 +174,22 @@
 	const sessionDuration = $derived(now - sessionStartTime);
 	const blocksThisSession = $derived(validatedHeight - sessionStartBlocks);
 	const estimatedDate = $derived(estimateBlockDate(validatedHeight));
-	const isSynced = $derived(chainInfo ? !chainInfo.initialblockdownload : false);
+	// Smarter sync detection: don't trust initialblockdownload alone
+	// If we have 0 validated blocks but network has blocks, we're clearly not synced
+	const isSynced = $derived(() => {
+		if (!chainInfo) return false;
+		// If node says we're in IBD, trust that
+		if (chainInfo.initialblockdownload) return false;
+		// If we have no validated blocks but network has blocks, we're not synced
+		if (validatedHeight === 0 && networkHeight > 0) return false;
+		// If we're more than 10 blocks behind, we're not synced
+		if (blocksRemaining > 10) return false;
+		// Otherwise trust the node
+		return true;
+	});
 
-	// Mode display
-	const modeLabel = $derived(
-		$selectedMode === 'validate-lite' ? 'Validate Lite' :
-		$selectedMode === 'validate-archival' ? 'Validate Archival' :
-		'Syncing'
-	);
+	// Mode display (detected from node)
+	const modeLabel = $derived(MODE_LABELS[$detectedMode] || 'Syncing');
 
 	onMount(() => {
 		// Initial fetch
@@ -267,7 +275,7 @@
 				<Badge variant="warning">Connecting...</Badge>
 			{:else if error}
 				<Badge variant="error">Disconnected</Badge>
-			{:else if isSynced}
+			{:else if isSynced()}
 				<Badge variant="success">Synced</Badge>
 			{:else}
 				<Badge variant="warning">Syncing {syncProgress.toFixed(1)}%</Badge>
@@ -471,7 +479,7 @@
 		</Card>
 
 		<!-- Currently Validating Indicator -->
-		{#if !isSynced}
+		{#if !isSynced()}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
 					<div class="w-2 h-2 rounded-full bg-echo-accent animate-pulse"></div>

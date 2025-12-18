@@ -1,46 +1,34 @@
 /**
  * Bitcoin Echo GUI — Onboarding Store
  *
- * Manages first-run detection and user mode preference.
- * Session 2.1: First-Run Onboarding Flow
+ * Session 2.1R: Architecture Rework
  *
- * Three operating modes:
- * - observe: Watch the network without storing anything
- * - validate-lite: Full validation with pruned storage (~10 GB)
- * - validate-archival: Full validation with complete block archive (~600 GB)
+ * The onboarding store now ONLY tracks whether the user has seen the
+ * educational guide overlay. Mode detection is handled by the nodeMode store.
+ *
+ * Key change: The welcome screen is now an educational guide that explains
+ * what mode the node is running in, NOT a configuration selector.
+ * The node (via CLI flags) is the sole source of truth for mode.
  */
 
 import { writable, derived, get } from 'svelte/store';
 import type { Writable, Readable } from 'svelte/store';
 
 /**
- * User's chosen operating mode
- *
- * - 'observe': Watch without downloading (no storage)
- * - 'validate-lite': Download just enough (~10 GB pruned)
- * - 'validate-archival': Download everything (~600 GB full)
- */
-export type NodeMode = 'observe' | 'validate-lite' | 'validate-archival' | null;
-
-/**
- * Current step in the onboarding flow
- */
-export type OnboardingStep = 'welcome' | 'validate-info' | 'complete';
-
-/**
  * Onboarding state
+ *
+ * - hasSeenGuide: User has dismissed the welcome guide at least once
+ * - showGuide: Currently showing the guide overlay
  */
 interface OnboardingState {
-	hasCompletedOnboarding: boolean;
-	currentStep: OnboardingStep;
-	selectedMode: NodeMode;
+	hasSeenGuide: boolean;
+	showGuide: boolean;
 }
 
 /**
- * LocalStorage keys
+ * LocalStorage key for guide seen status
  */
-const STORAGE_KEY_COMPLETED = 'bitcoin-echo-onboarding-completed';
-const STORAGE_KEY_MODE = 'bitcoin-echo-mode';
+const STORAGE_KEY_GUIDE_SEEN = 'bitcoin-echo-guide-seen';
 
 /**
  * Load initial state from localStorage
@@ -48,19 +36,17 @@ const STORAGE_KEY_MODE = 'bitcoin-echo-mode';
 function loadInitialState(): OnboardingState {
 	if (typeof window === 'undefined') {
 		return {
-			hasCompletedOnboarding: false,
-			currentStep: 'welcome',
-			selectedMode: null
+			hasSeenGuide: false,
+			showGuide: false // Will be set to true on first render if !hasSeenGuide
 		};
 	}
 
-	const completed = localStorage.getItem(STORAGE_KEY_COMPLETED) === 'true';
-	const mode = localStorage.getItem(STORAGE_KEY_MODE) as NodeMode;
+	const hasSeenGuide = localStorage.getItem(STORAGE_KEY_GUIDE_SEEN) === 'true';
 
 	return {
-		hasCompletedOnboarding: completed,
-		currentStep: completed ? 'complete' : 'welcome',
-		selectedMode: mode
+		hasSeenGuide,
+		// Show guide on first visit (when hasSeenGuide is false)
+		showGuide: !hasSeenGuide
 	};
 }
 
@@ -70,17 +56,11 @@ function loadInitialState(): OnboardingState {
 const onboardingState: Writable<OnboardingState> = writable(loadInitialState());
 
 /**
- * Save state to localStorage
+ * Save guide seen status to localStorage
  */
-function saveState(state: OnboardingState): void {
+function saveGuideSeen(): void {
 	if (typeof window === 'undefined') return;
-
-	if (state.hasCompletedOnboarding) {
-		localStorage.setItem(STORAGE_KEY_COMPLETED, 'true');
-	}
-	if (state.selectedMode) {
-		localStorage.setItem(STORAGE_KEY_MODE, state.selectedMode);
-	}
+	localStorage.setItem(STORAGE_KEY_GUIDE_SEEN, 'true');
 }
 
 /**
@@ -90,155 +70,128 @@ export const onboarding = {
 	subscribe: onboardingState.subscribe,
 
 	/**
-	 * Select observe mode (immediate completion)
+	 * Dismiss the guide overlay
+	 * Called when user clicks "Got it" or closes the guide
 	 */
-	selectObserve(): void {
-		onboardingState.update((s) => {
-			const newState = {
-				...s,
-				selectedMode: 'observe' as NodeMode,
-				currentStep: 'complete' as OnboardingStep,
-				hasCompletedOnboarding: true
-			};
-			saveState(newState);
-			return newState;
-		});
+	dismissGuide(): void {
+		onboardingState.update((s) => ({
+			...s,
+			hasSeenGuide: true,
+			showGuide: false
+		}));
+		saveGuideSeen();
 	},
 
 	/**
-	 * Select validate-lite mode (shows info about pruned storage)
+	 * Show the guide again
+	 * Called from help button in sidebar
 	 */
-	selectValidateLite(): void {
+	showGuide(): void {
 		onboardingState.update((s) => ({
 			...s,
-			selectedMode: 'validate-lite' as NodeMode,
-			currentStep: 'validate-info' as OnboardingStep
+			showGuide: true
 		}));
 	},
 
 	/**
-	 * Select validate-archival mode (shows info about full storage)
+	 * Hide the guide (without marking as seen - for programmatic closing)
 	 */
-	selectValidateArchival(): void {
+	hideGuide(): void {
 		onboardingState.update((s) => ({
 			...s,
-			selectedMode: 'validate-archival' as NodeMode,
-			currentStep: 'validate-info' as OnboardingStep
+			showGuide: false
 		}));
 	},
 
 	/**
-	 * Complete the validate info step
+	 * Check if guide has been seen
 	 */
-	completeValidateInfo(): void {
-		onboardingState.update((s) => {
-			const newState = {
-				...s,
-				currentStep: 'complete' as OnboardingStep,
-				hasCompletedOnboarding: true
-			};
-			saveState(newState);
-			return newState;
-		});
+	hasBeenSeen(): boolean {
+		return get(onboardingState).hasSeenGuide;
 	},
 
 	/**
-	 * Go back to welcome step
-	 */
-	goBack(): void {
-		onboardingState.update((s) => ({
-			...s,
-			currentStep: 'welcome' as OnboardingStep,
-			selectedMode: null
-		}));
-	},
-
-	/**
-	 * Show onboarding again (keeps saved preference)
-	 */
-	showAgain(): void {
-		onboardingState.update((s) => ({
-			...s,
-			hasCompletedOnboarding: false,
-			currentStep: 'welcome'
-		}));
-	},
-
-	/**
-	 * Reset onboarding (for testing/debugging)
+	 * Reset onboarding state (for testing/debugging)
 	 */
 	reset(): void {
 		if (typeof window !== 'undefined') {
-			localStorage.removeItem(STORAGE_KEY_COMPLETED);
-			localStorage.removeItem(STORAGE_KEY_MODE);
+			localStorage.removeItem(STORAGE_KEY_GUIDE_SEEN);
+			// Also clean up old localStorage keys from previous implementation
+			localStorage.removeItem('bitcoin-echo-onboarding-completed');
+			localStorage.removeItem('bitcoin-echo-mode');
 		}
 		onboardingState.set({
-			hasCompletedOnboarding: false,
-			currentStep: 'welcome',
-			selectedMode: null
+			hasSeenGuide: false,
+			showGuide: true
 		});
-	},
-
-	/**
-	 * Get current mode preference
-	 */
-	getMode(): NodeMode {
-		return get(onboardingState).selectedMode;
 	}
 };
 
 /**
- * Derived store: Should show onboarding?
+ * Derived store: Should show the guide overlay?
  */
-export const showOnboarding: Readable<boolean> = derived(
+export const showGuide: Readable<boolean> = derived(
 	onboardingState,
-	($state) => !$state.hasCompletedOnboarding
+	($state) => $state.showGuide
 );
 
 /**
- * Derived store: Current onboarding step
+ * Derived store: Has user seen the guide before?
  */
-export const currentStep: Readable<OnboardingStep> = derived(
+export const hasSeenGuide: Readable<boolean> = derived(
 	onboardingState,
-	($state) => $state.currentStep
+	($state) => $state.hasSeenGuide
 );
 
-/**
- * Derived store: Selected mode
- */
-export const selectedMode: Readable<NodeMode> = derived(
-	onboardingState,
-	($state) => $state.selectedMode
-);
+// ============================================================================
+// DEPRECATED EXPORTS FOR BACKWARD COMPATIBILITY
+// These will be removed after all components are updated
+// ============================================================================
 
 /**
- * Derived store: Is in observer mode?
+ * @deprecated Use showGuide instead
  */
-export const isObserverMode: Readable<boolean> = derived(
-	onboardingState,
-	($state) => $state.selectedMode === 'observe'
-);
+export const showOnboarding: Readable<boolean> = showGuide;
 
 /**
- * Derived store: Is in validate-lite mode (pruned)?
+ * @deprecated Mode is now detected from node via nodeMode store
  */
-export const isValidateLiteMode: Readable<boolean> = derived(
-	onboardingState,
-	($state) => $state.selectedMode === 'validate-lite'
-);
+export type NodeMode = 'observe' | 'validate-lite' | 'validate-archival' | null;
 
 /**
- * Derived store: Is in validate-archival mode (full)?
+ * @deprecated Use nodeMode store instead
  */
-export const isValidateArchivalMode: Readable<boolean> = derived(
-	onboardingState,
-	($state) => $state.selectedMode === 'validate-archival'
-);
+export const selectedMode: Readable<null> = derived(onboardingState, () => null);
 
 /**
- * Derived store: Is in any validate mode (lite or archival)?
+ * @deprecated Use nodeMode.isObserverMode instead
  */
-export const isValidateMode: Readable<boolean> = derived(
+export const isObserverMode: Readable<boolean> = derived(onboardingState, () => false);
+
+/**
+ * @deprecated Use nodeMode.isValidateLiteMode instead
+ */
+export const isValidateLiteMode: Readable<boolean> = derived(onboardingState, () => false);
+
+/**
+ * @deprecated Use nodeMode.isValidateArchivalMode instead
+ */
+export const isValidateArchivalMode: Readable<boolean> = derived(onboardingState, () => false);
+
+/**
+ * @deprecated Use nodeMode.isValidateMode instead
+ */
+export const isValidateMode: Readable<boolean> = derived(onboardingState, () => false);
+
+/**
+ * @deprecated No longer used - step flow removed
+ */
+export type OnboardingStep = 'welcome' | 'complete';
+
+/**
+ * @deprecated No longer used - step flow removed
+ */
+export const currentStep: Readable<'complete'> = derived(
 	onboardingState,
-	($state) => $state.selectedMode === 'validate-lite' || $state.selectedMode === 'validate-archival'
+	() => 'complete' as const
 );
