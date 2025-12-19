@@ -6,10 +6,17 @@
 	 *
 	 * Shows a resume context when user returns to continue syncing.
 	 * Displays last session info, progress saved, and encouragement.
+	 *
+	 * Updated to show headers-first sync progress correctly:
+	 * - During headers phase: shows header count and header progress
+	 * - During blocks phase: shows validated block count and block progress
 	 */
 
+	import { onMount } from 'svelte';
 	import { detectedMode, MODE_LABELS, pruneTargetMB } from '$lib/stores/nodeMode';
-	import { lastKnownHeight, lastKnownProgress, totalSessionCount } from '$lib/stores/sessionHistory';
+	import { totalSessionCount } from '$lib/stores/sessionHistory';
+	import { connection, blockHeight } from '$lib/stores/connection';
+	import { getBlockchainInfo } from '$lib/rpc/client';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import Button from '$lib/components/Button.svelte';
 
@@ -20,6 +27,43 @@
 	}
 
 	let { lastSessionDate = null, onContinue, onObserve }: Props = $props();
+
+	// Live sync state from node
+	let blocks = $state(0);
+	let headers = $state(0);
+	let loading = $state(true);
+
+	// Fetch current sync state from node
+	onMount(async () => {
+		try {
+			const config = connection.getConfig();
+			const info = await getBlockchainInfo({ endpoint: config.endpoint, timeout: config.timeout });
+			blocks = info.blocks;
+			headers = info.headers;
+		} catch (e) {
+			console.warn('Failed to fetch blockchain info:', e);
+		} finally {
+			loading = false;
+		}
+	});
+
+	// Derived: Are we in headers-first sync phase?
+	const isHeadersPhase = $derived(headers > 0 && blocks === 0);
+
+	// Derived: Network height (from mempool.space)
+	const networkHeight = $derived($blockHeight || 928000); // Fallback to approximate
+
+	// Derived: Current progress (based on phase)
+	const currentProgress = $derived(() => {
+		if (networkHeight <= 0) return 0;
+		if (isHeadersPhase) {
+			return Math.min((headers / networkHeight) * 100, 100);
+		}
+		return Math.min((blocks / networkHeight) * 100, 100);
+	});
+
+	// Derived: Display height (headers during headers phase, blocks otherwise)
+	const displayHeight = $derived(isHeadersPhase ? headers : blocks);
 
 	/**
 	 * Format date for display
@@ -99,28 +143,50 @@
 			{/if}
 
 			<div class="space-y-4">
-				<!-- Saved Progress -->
+				<!-- Current Progress -->
 				<div class="flex items-baseline justify-between">
-					<span class="text-echo-muted">Progress saved</span>
+					<span class="text-echo-muted">
+						{isHeadersPhase ? 'Header sync progress' : 'Validation progress'}
+					</span>
 					<span class="font-mono text-xl text-echo-accent">
-						{$lastKnownProgress.toFixed(1)}%
+						{#if loading}
+							...
+						{:else}
+							{currentProgress().toFixed(1)}%
+						{/if}
 					</span>
 				</div>
 
-				<!-- Last Block -->
+				<!-- Headers or Blocks count -->
 				<div class="flex items-baseline justify-between">
-					<span class="text-echo-muted">Last validated block</span>
+					<span class="text-echo-muted">
+						{isHeadersPhase ? 'Headers downloaded' : 'Blocks validated'}
+					</span>
 					<span class="font-mono text-echo-text">
-						#{$lastKnownHeight.toLocaleString()}
+						{#if loading}
+							...
+						{:else}
+							{displayHeight.toLocaleString()}
+						{/if}
 					</span>
 				</div>
 
-				<!-- Estimated Era -->
-				{#if $lastKnownHeight > 0}
+				<!-- Estimated Era (for block validation phase) -->
+				{#if !isHeadersPhase && displayHeight > 0}
 					<div class="flex items-baseline justify-between">
 						<span class="text-echo-muted">Currently at</span>
 						<span class="font-mono text-echo-text">
-							{estimateBlockDate($lastKnownHeight)}
+							{estimateBlockDate(displayHeight)}
+						</span>
+					</div>
+				{/if}
+
+				<!-- Phase indicator for headers sync -->
+				{#if isHeadersPhase}
+					<div class="flex items-baseline justify-between">
+						<span class="text-echo-muted">Phase</span>
+						<span class="font-mono text-amber-500">
+							1 of 2 (Headers)
 						</span>
 					</div>
 				{/if}
@@ -154,10 +220,19 @@
 			</div>
 			<div class="h-2 w-full overflow-hidden rounded-full bg-echo-surface">
 				<div
-					class="h-full rounded-full bg-gradient-to-r from-echo-accent to-emerald-500 transition-all duration-500"
-					style="width: {$lastKnownProgress}%"
+					class="h-full rounded-full transition-all duration-500"
+					class:bg-gradient-to-r={!isHeadersPhase}
+					class:from-echo-accent={!isHeadersPhase}
+					class:to-emerald-500={!isHeadersPhase}
+					class:bg-amber-500={isHeadersPhase}
+					style="width: {currentProgress()}%"
 				></div>
 			</div>
+			{#if isHeadersPhase}
+				<p class="mt-2 text-xs text-amber-500">
+					Downloading headers before block validation begins
+				</p>
+			{/if}
 		</div>
 
 		<!-- Actions -->
