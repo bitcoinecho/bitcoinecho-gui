@@ -22,7 +22,7 @@ import type {
  */
 const DEFAULT_CONFIG: RPCConfig = {
 	endpoint: 'http://localhost:8332',
-	timeout: 5000
+	timeout: 15000 // Increased for heavy sync periods when node is busy
 };
 
 /**

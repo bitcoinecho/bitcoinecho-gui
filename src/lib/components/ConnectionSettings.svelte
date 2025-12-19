@@ -32,7 +32,7 @@
 		testError = null;
 
 		try {
-			const success = await testConnection({ endpoint, timeout: 5000 });
+			const success = await testConnection({ endpoint, timeout: 15000 });
 			if (success) {
 				testResult = 'success';
 			} else {
