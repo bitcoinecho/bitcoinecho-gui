@@ -52,6 +52,11 @@
 	let lastBlockHeight = $state(0);
 	let lastUpdateTime = $state(Date.now());
 
+	// Header sync tracking
+	let headersPerSecond = $state(0);
+	let lastHeaderCount = $state(0);
+	let lastHeaderUpdateTime = $state(Date.now());
+
 	// Polling
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
 	let timeInterval: ReturnType<typeof setInterval> | null = null;
@@ -223,6 +228,20 @@
 				}
 			}
 
+			// Calculate headers per second (for headers-first sync phase)
+			if (lastHeaderCount > 0 && info.headers > lastHeaderCount) {
+				const headersDelta = info.headers - lastHeaderCount;
+				const timeDelta = (Date.now() - lastHeaderUpdateTime) / 1000;
+				if (timeDelta > 0) {
+					const instantRate = headersDelta / timeDelta;
+					headersPerSecond = headersPerSecond === 0
+						? instantRate
+						: headersPerSecond * 0.7 + instantRate * 0.3;
+				}
+			}
+			lastHeaderCount = info.headers;
+			lastHeaderUpdateTime = Date.now();
+
 			lastBlockHeight = info.blocks;
 			lastUpdateTime = Date.now();
 			chainInfo = info;
@@ -245,12 +264,19 @@
 	// Computed values
 	const networkHeight = $derived($blockHeight || 0);
 	const validatedHeight = $derived(chainInfo?.blocks || 0);
+	const headerCount = $derived(chainInfo?.headers || 0);
 	const blocksRemaining = $derived(Math.max(0, networkHeight - validatedHeight));
 	const syncProgress = $derived(calcProgress(validatedHeight, networkHeight));
 	const progressBarWidth = $derived(`${syncProgress}%`);
 	const sessionDuration = $derived(now - sessionStartTime);
 	const blocksThisSession = $derived(validatedHeight - sessionStartBlocks);
 	const estimatedDate = $derived(estimateBlockDate(validatedHeight));
+
+	// Headers-first sync phase detection and progress
+	const isHeadersPhase = $derived(headerCount > 0 && validatedHeight === 0);
+	const headerSyncProgress = $derived(networkHeight > 0 ? (headerCount / networkHeight) * 100 : 0);
+	const headersRemaining = $derived(Math.max(0, networkHeight - headerCount));
+	const headerProgressBarWidth = $derived(`${Math.min(headerSyncProgress, 100)}%`);
 	// Smarter sync detection: don't trust initialblockdownload alone
 	// If we have 0 validated blocks but network has blocks, we're clearly not synced
 	const isSynced = $derived(() => {
@@ -543,6 +569,68 @@
 			</div>
 		</Card>
 
+		<!-- Headers-First Sync Phase (shown when downloading headers before blocks) -->
+		{#if isHeadersPhase}
+			<Card>
+				<div class="border-l-4 border-amber-500 pl-4">
+					<div class="flex items-center justify-between mb-3">
+						<div class="flex items-center gap-2">
+							<div class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
+							<h2 class="text-lg font-light text-echo-text">Downloading Headers</h2>
+						</div>
+						<span class="text-xs text-echo-dim font-mono">Phase 1 of 2</span>
+					</div>
+
+					<p class="text-sm text-echo-muted mb-4">
+						Bitcoin Echo uses headers-first sync: downloading all block headers before requesting full blocks.
+						This allows verification of proof-of-work before committing to download ~600GB of block data.
+					</p>
+
+					<!-- Header progress bar -->
+					<div class="mb-2">
+						<div class="flex justify-between text-sm mb-1">
+							<span class="text-echo-muted">Header Progress</span>
+							<span class="font-mono text-echo-text">
+								{formatNumber(headerCount)} / {formatNumber(networkHeight)}
+							</span>
+						</div>
+						<div class="h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
+							<div
+								class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-500"
+								style="width: {headerProgressBarWidth}"
+							></div>
+						</div>
+					</div>
+
+					<!-- Header stats -->
+					<div class="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-echo-border">
+						<div>
+							<div class="text-xs text-echo-dim mb-1">Speed</div>
+							<div class="font-mono text-echo-text">
+								{headersPerSecond > 0 ? Math.round(headersPerSecond).toLocaleString() : '...'} <span class="text-xs text-echo-muted">hdr/s</span>
+							</div>
+						</div>
+						<div>
+							<div class="text-xs text-echo-dim mb-1">Remaining</div>
+							<div class="font-mono text-echo-text">
+								{formatNumber(headersRemaining)}
+							</div>
+						</div>
+						<div>
+							<div class="text-xs text-echo-dim mb-1">ETA</div>
+							<div class="font-mono text-echo-text">
+								{headersPerSecond > 0 ? formatETA(headersRemaining, headersPerSecond) : 'Calculating...'}
+							</div>
+						</div>
+					</div>
+
+					<p class="text-xs text-echo-dim mt-4">
+						After headers complete, block download will begin automatically.
+					</p>
+				</div>
+			</Card>
+		{/if}
+
 		<!-- Milestone Notification (appears when passing a milestone) -->
 		{#if currentMilestoneNotification}
 			<MilestoneNotification
@@ -684,7 +772,16 @@
 		</Card>
 
 		<!-- Currently Validating Indicator -->
-		{#if !isSynced()}
+		{#if isHeadersPhase}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Downloading headers... {formatNumber(headerCount)} / {formatNumber(networkHeight)} ({headerSyncProgress.toFixed(1)}%)
+					</p>
+				</div>
+			</div>
+		{:else if !isSynced()}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
 					<div class="w-2 h-2 rounded-full bg-echo-accent animate-pulse"></div>
