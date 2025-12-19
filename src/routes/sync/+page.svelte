@@ -1,13 +1,25 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { getBlockchainInfo } from '$lib/rpc/client';
 	import { connection, blockHeight, networkHashrate } from '$lib/stores/connection';
 	import { detectedMode, MODE_LABELS } from '$lib/stores/nodeMode';
+	import {
+		sessionHistory,
+		isResumeSession,
+		lastKnownHeight,
+		lastKnownProgress,
+		totalSessionCount,
+		allSessions,
+		syncCompletion
+	} from '$lib/stores/sessionHistory';
 	import Card from '$lib/components/Card.svelte';
 	import Hash from '$lib/components/Hash.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import MilestoneNotification from '$lib/components/MilestoneNotification.svelte';
+	import WelcomeBack from '$lib/components/WelcomeBack.svelte';
+	import SyncComplete from '$lib/components/SyncComplete.svelte';
 	import type { BlockchainInfo } from '$lib/rpc/types';
 	import type { Milestone } from '$lib/data/milestones';
 	import {
@@ -18,6 +30,12 @@
 		CATEGORY_INFO
 	} from '$lib/data/milestones';
 
+	// View state: 'loading' | 'resume' | 'syncing' | 'complete'
+	let viewState = $state<'loading' | 'resume' | 'syncing' | 'complete'>('loading');
+
+	// Track if we've shown the resume overlay this browser session
+	const SESSION_KEY_RESUME_SHOWN = 'bitcoin-echo-resume-shown-session';
+
 	// Sync state
 	let chainInfo = $state<BlockchainInfo | null>(null);
 	let error = $state<string | null>(null);
@@ -27,6 +45,7 @@
 	let sessionStartTime = $state(Date.now());
 	let sessionStartBlocks = $state(0);
 	let hasSessionStart = $state(false);
+	let sessionTrackerStarted = $state(false);
 
 	// Performance tracking
 	let blocksPerSecond = $state(0);
@@ -246,6 +265,68 @@
 		return true;
 	});
 
+	// Track if sync just completed (transition from syncing to synced)
+	let wasNotSynced = $state(true);
+	let justCompletedSync = $state(false);
+
+	// Get last session date for resume screen
+	const lastSessionDate = $derived(() => {
+		const sessions = $allSessions;
+		if (sessions.length === 0) return null;
+		const lastSession = sessions[sessions.length - 1];
+		return lastSession.endTime ? new Date(lastSession.endTime) : null;
+	});
+
+	/**
+	 * Handle continue sync from resume screen
+	 */
+	function handleContinueSync(): void {
+		// Mark resume as shown for this browser session
+		if (typeof window !== 'undefined') {
+			sessionStorage.setItem(SESSION_KEY_RESUME_SHOWN, 'true');
+		}
+		viewState = 'syncing';
+	}
+
+	/**
+	 * Handle observe network instead
+	 */
+	function handleObserve(): void {
+		goto('/observer');
+	}
+
+	/**
+	 * Handle entering the dashboard after sync complete
+	 */
+	function handleEnterDashboard(): void {
+		// For now, stay on sync page but clear the completion view
+		// In the future, this could navigate to a dashboard view
+		viewState = 'syncing';
+	}
+
+	/**
+	 * Start session tracking
+	 */
+	function startSessionTracking(): void {
+		if (sessionTrackerStarted || !chainInfo) return;
+		sessionTrackerStarted = true;
+		sessionHistory.startSession(chainInfo.blocks, networkHeight);
+	}
+
+	/**
+	 * Check if we should show resume screen
+	 */
+	function shouldShowResume(): boolean {
+		if (typeof window === 'undefined') return false;
+
+		// Don't show if already dismissed this browser session
+		const alreadyShown = sessionStorage.getItem(SESSION_KEY_RESUME_SHOWN) === 'true';
+		if (alreadyShown) return false;
+
+		// Show if user has previous sessions
+		return $isResumeSession;
+	}
+
 	// Mode display (detected from node)
 	const modeLabel = $derived(MODE_LABELS[$detectedMode] || 'Syncing');
 
@@ -254,6 +335,13 @@
 	const nextMilestone = $derived(getNextMilestone(validatedHeight));
 
 	onMount(() => {
+		// Determine initial view state
+		if (shouldShowResume() && !$syncCompletion) {
+			viewState = 'resume';
+		} else {
+			viewState = 'syncing';
+		}
+
 		// Initial fetch
 		fetchChainInfo();
 		// Also fetch external data (block height, hashrate)
@@ -287,7 +375,39 @@
 			if (pollInterval) clearTimeout(pollInterval);
 			clearInterval(externalPoll);
 			if (timeInterval) clearInterval(timeInterval);
+
+			// End session when leaving page
+			if (sessionTrackerStarted && chainInfo) {
+				sessionHistory.endSession(chainInfo.blocks);
+			}
 		};
+	});
+
+	// Effect: Track session progress and detect sync completion
+	$effect(() => {
+		if (!chainInfo || loading) return;
+
+		// Start session tracking when we have chain data and are in syncing view
+		if (viewState === 'syncing' && !isSynced()) {
+			startSessionTracking();
+		}
+
+		// Update progress periodically
+		if (sessionTrackerStarted && validatedHeight > 0) {
+			sessionHistory.updateProgress(validatedHeight, syncProgress);
+		}
+
+		// Detect sync completion (transition from not synced to synced)
+		if (wasNotSynced && isSynced() && validatedHeight > 0) {
+			wasNotSynced = false;
+			justCompletedSync = true;
+
+			// Only show completion celebration if not already completed
+			if (!$syncCompletion) {
+				sessionHistory.markComplete(validatedHeight);
+				viewState = 'complete';
+			}
+		}
 	});
 
 	// Note: Cleanup is handled by onMount return function
@@ -324,30 +444,45 @@
 	}
 </style>
 
-<div class="space-y-6">
-	<!-- Header -->
-	<div class="flex items-center justify-between flex-wrap gap-4">
-		<div>
-			<h1 class="text-3xl font-light text-echo-text">Your Validation Journey</h1>
-			<p class="text-echo-muted mt-1">Independently verifying every transaction since 2009</p>
+<!-- View State Routing -->
+{#if viewState === 'resume'}
+	<WelcomeBack
+		lastSessionDate={lastSessionDate()}
+		onContinue={handleContinueSync}
+		onObserve={handleObserve}
+	/>
+{:else if viewState === 'complete'}
+	<SyncComplete
+		bestBlockHash={chainInfo?.bestblockhash || ''}
+		chainWork={chainInfo?.chainwork || ''}
+		onEnterDashboard={handleEnterDashboard}
+	/>
+{:else}
+	<!-- Main Sync View -->
+	<div class="space-y-6">
+		<!-- Header -->
+		<div class="flex items-center justify-between flex-wrap gap-4">
+			<div>
+				<h1 class="text-3xl font-light text-echo-text">Your Validation Journey</h1>
+				<p class="text-echo-muted mt-1">Independently verifying every transaction since 2009</p>
+			</div>
+
+			<div class="flex items-center gap-3">
+				{#if loading}
+					<Badge variant="warning">Connecting...</Badge>
+				{:else if error}
+					<Badge variant="error">Disconnected</Badge>
+				{:else if isSynced()}
+					<Badge variant="success">Synced</Badge>
+				{:else}
+					<Badge variant="warning">Syncing {syncProgress.toFixed(1)}%</Badge>
+				{/if}
+				<span class="text-xs text-echo-dim font-mono">{modeLabel}</span>
+			</div>
 		</div>
 
-		<div class="flex items-center gap-3">
-			{#if loading}
-				<Badge variant="warning">Connecting...</Badge>
-			{:else if error}
-				<Badge variant="error">Disconnected</Badge>
-			{:else if isSynced()}
-				<Badge variant="success">Synced</Badge>
-			{:else}
-				<Badge variant="warning">Syncing {syncProgress.toFixed(1)}%</Badge>
-			{/if}
-			<span class="text-xs text-echo-dim font-mono">{modeLabel}</span>
-		</div>
-	</div>
-
-	<!-- Error state -->
-	{#if error}
+		<!-- Error state -->
+		{#if error}
 		<Card>
 			<div class="text-center py-8">
 				<p class="text-echo-text mb-2">Unable to connect to node</p>
@@ -653,4 +788,5 @@
 			</div>
 		{/if}
 	{/if}
-</div>
+	</div>
+{/if}
