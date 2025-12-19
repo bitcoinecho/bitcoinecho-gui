@@ -7,7 +7,16 @@
 	import Hash from '$lib/components/Hash.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
 	import Badge from '$lib/components/Badge.svelte';
+	import MilestoneNotification from '$lib/components/MilestoneNotification.svelte';
 	import type { BlockchainInfo } from '$lib/rpc/types';
+	import type { Milestone } from '$lib/data/milestones';
+	import {
+		getMilestonesBetween,
+		getLastPassedMilestone,
+		getNextMilestone,
+		getMilestoneUrl,
+		CATEGORY_INFO
+	} from '$lib/data/milestones';
 
 	// Sync state
 	let chainInfo = $state<BlockchainInfo | null>(null);
@@ -29,6 +38,11 @@
 	let timeInterval: ReturnType<typeof setInterval> | null = null;
 	let now = $state(Date.now());
 	let isFetching = $state(false); // Prevent overlapping requests
+
+	// Milestone tracking
+	let currentMilestoneNotification = $state<Milestone | null>(null);
+	let dismissedMilestones = $state<Set<number>>(new Set());
+	let lastMilestoneCheckHeight = $state(0);
 
 	/**
 	 * Poll interval (3 seconds for sync progress)
@@ -116,6 +130,46 @@
 	}
 
 	/**
+	 * Check for milestones passed since last check
+	 * Shows notification for the most recently passed milestone
+	 */
+	function checkMilestones(currentHeight: number): void {
+		if (lastMilestoneCheckHeight === 0) {
+			// First check — just set the baseline, don't show notifications for past milestones
+			lastMilestoneCheckHeight = currentHeight;
+			return;
+		}
+
+		if (currentHeight <= lastMilestoneCheckHeight) {
+			return; // No progress
+		}
+
+		// Find milestones passed since last check
+		const passedMilestones = getMilestonesBetween(lastMilestoneCheckHeight + 1, currentHeight);
+
+		// Show the most recent milestone that hasn't been dismissed
+		for (let i = passedMilestones.length - 1; i >= 0; i--) {
+			const milestone = passedMilestones[i];
+			if (!dismissedMilestones.has(milestone.height)) {
+				currentMilestoneNotification = milestone;
+				break;
+			}
+		}
+
+		lastMilestoneCheckHeight = currentHeight;
+	}
+
+	/**
+	 * Dismiss the current milestone notification
+	 */
+	function dismissMilestone(): void {
+		if (currentMilestoneNotification) {
+			dismissedMilestones = new Set([...dismissedMilestones, currentMilestoneNotification.height]);
+			currentMilestoneNotification = null;
+		}
+	}
+
+	/**
 	 * Fetch blockchain info
 	 * Returns true if successful, false if error (for backoff logic)
 	 */
@@ -156,6 +210,10 @@
 			error = null;
 			loading = false;
 			isFetching = false;
+
+			// Check for milestones passed
+			checkMilestones(info.blocks);
+
 			return true;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Unknown error';
@@ -190,6 +248,10 @@
 
 	// Mode display (detected from node)
 	const modeLabel = $derived(MODE_LABELS[$detectedMode] || 'Syncing');
+
+	// Milestone tracking (derived)
+	const lastMilestone = $derived(getLastPassedMilestone(validatedHeight));
+	const nextMilestone = $derived(getNextMilestone(validatedHeight));
 
 	onMount(() => {
 		// Initial fetch
@@ -346,6 +408,14 @@
 			</div>
 		</Card>
 
+		<!-- Milestone Notification (appears when passing a milestone) -->
+		{#if currentMilestoneNotification}
+			<MilestoneNotification
+				milestone={currentMilestoneNotification}
+				onDismiss={dismissMilestone}
+			/>
+		{/if}
+
 		<!-- Dual Column: Network vs Local -->
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 			<!-- Live Network (from mempool.space) -->
@@ -495,6 +565,90 @@
 					<p class="text-sm text-echo-text font-mono">
 						Fully synced - validating new blocks as they arrive
 					</p>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Milestones Section -->
+		{#if lastMilestone || nextMilestone}
+			<div class="border-t border-echo-border pt-6">
+				<h3 class="text-xs font-mono uppercase tracking-wider text-echo-dim mb-4">
+					Milestones
+				</h3>
+
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+					<!-- Last Passed Milestone -->
+					{#if lastMilestone}
+						{@const categoryInfo = CATEGORY_INFO[lastMilestone.category]}
+						<a
+							href={getMilestoneUrl(lastMilestone)}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="group block bg-echo-surface/50 border border-echo-border rounded-lg p-4 hover:border-echo-accent/50 transition-colors"
+						>
+							<div class="flex items-start gap-3">
+								{#if lastMilestone.icon}
+									<span class="text-xl opacity-60 group-hover:opacity-100 transition-opacity">
+										{lastMilestone.icon}
+									</span>
+								{/if}
+								<div class="flex-1 min-w-0">
+									<div class="flex items-center gap-2 mb-1">
+										<span class="text-xs text-echo-dim">Passed</span>
+										<span class="text-xs font-mono {categoryInfo.color}">
+											#{lastMilestone.height.toLocaleString()}
+										</span>
+									</div>
+									<p class="text-sm text-echo-text font-medium truncate">
+										{lastMilestone.title}
+									</p>
+									<p class="text-xs text-echo-muted mt-0.5">
+										{lastMilestone.date}
+									</p>
+								</div>
+								<svg class="h-4 w-4 text-echo-dim opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+								</svg>
+							</div>
+						</a>
+					{/if}
+
+					<!-- Next Upcoming Milestone -->
+					{#if nextMilestone}
+						{@const categoryInfo = CATEGORY_INFO[nextMilestone.category]}
+						{@const blocksAway = nextMilestone.height - validatedHeight}
+						<a
+							href={getMilestoneUrl(nextMilestone)}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="group block bg-echo-surface/50 border border-echo-border rounded-lg p-4 hover:border-echo-accent/50 transition-colors"
+						>
+							<div class="flex items-start gap-3">
+								{#if nextMilestone.icon}
+									<span class="text-xl opacity-40 group-hover:opacity-80 transition-opacity">
+										{nextMilestone.icon}
+									</span>
+								{/if}
+								<div class="flex-1 min-w-0">
+									<div class="flex items-center gap-2 mb-1">
+										<span class="text-xs text-echo-dim">Upcoming</span>
+										<span class="text-xs font-mono text-echo-muted">
+											{blocksAway.toLocaleString()} blocks
+										</span>
+									</div>
+									<p class="text-sm text-echo-muted font-medium truncate">
+										{nextMilestone.title}
+									</p>
+									<p class="text-xs text-echo-dim mt-0.5">
+										Block #{nextMilestone.height.toLocaleString()}
+									</p>
+								</div>
+								<svg class="h-4 w-4 text-echo-dim opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+								</svg>
+							</div>
+						</a>
+					{/if}
 				</div>
 			</div>
 		{/if}
