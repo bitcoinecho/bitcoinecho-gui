@@ -293,6 +293,27 @@ export async function getBlockchainInfo(config?: Partial<RPCConfig>): Promise<Bl
 }
 
 /**
+ * Get all sync data in a single batch request
+ *
+ * Efficient method to fetch blockchain info and observer stats in one HTTP call.
+ * This reduces network overhead from 2 HTTP requests to 1.
+ *
+ * @param config - RPC configuration (optional)
+ * @returns Object containing chainInfo and observerStats
+ */
+export async function getSyncDataBatch(config?: Partial<RPCConfig>): Promise<{
+	chainInfo: BlockchainInfo;
+	observerStats: ObserverStats;
+}> {
+	const [chainInfo, observerStats] = await rpcBatchCall<[BlockchainInfo, ObserverStats]>(
+		[{ method: 'getblockchaininfo' }, { method: 'getobserverstats' }],
+		config
+	);
+
+	return { chainInfo, observerStats };
+}
+
+/**
  * Test if node supports validation mode RPCs
  *
  * Attempts to call getblockchaininfo to verify the node is reachable

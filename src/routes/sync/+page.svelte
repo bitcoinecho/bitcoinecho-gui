@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getBlockchainInfo } from '$lib/rpc/client';
-	import { connection, blockHeight, networkHashrate, observerStats } from '$lib/stores/connection';
-	import { derived } from 'svelte/store';
+	import { getSyncDataBatch } from '$lib/rpc/client';
+	import { connection, blockHeight, networkHashrate } from '$lib/stores/connection';
 	import { detectedMode, MODE_LABELS } from '$lib/stores/nodeMode';
 	import {
 		sessionHistory,
@@ -58,6 +57,11 @@
 	let lastHeaderCount = $state(0);
 	let lastHeaderUpdateTime = $state(Date.now());
 
+	// Observer stats (from batch RPC)
+	let peerCount = $state(0);
+	let nodeUptime = $state(0);
+	let nodeStartHeight = $state(0);
+
 	// Polling
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
 	let timeInterval: ReturnType<typeof setInterval> | null = null;
@@ -70,10 +74,9 @@
 	let lastMilestoneCheckHeight = $state(0);
 
 	/**
-	 * Poll interval (3 seconds for sync progress)
-	 * Longer than timeout to prevent request pileup
+	 * Poll interval - golden ratio (1.618s) matches observer page
 	 */
-	const POLL_INTERVAL = 3000;
+	const POLL_INTERVAL = 1618;
 
 	/**
 	 * Backoff interval when disconnected (10 seconds)
@@ -195,7 +198,7 @@
 	}
 
 	/**
-	 * Fetch blockchain info
+	 * Fetch all sync data in one batch RPC call
 	 * Returns true if successful, false if error (for backoff logic)
 	 */
 	async function fetchChainInfo(): Promise<boolean> {
@@ -205,7 +208,15 @@
 
 		try {
 			const config = connection.getConfig();
-			const info = await getBlockchainInfo({ endpoint: config.endpoint, timeout: config.timeout });
+			const { chainInfo: info, observerStats } = await getSyncDataBatch({
+				endpoint: config.endpoint,
+				timeout: config.timeout
+			});
+
+			// Update observer stats (peer count, uptime, start height)
+			peerCount = observerStats.peer_count;
+			nodeUptime = observerStats.uptime_seconds;
+			nodeStartHeight = observerStats.start_height;
 
 			// Track session start
 			if (!hasSessionStart && info.blocks > 0) {
@@ -357,20 +368,14 @@
 	// Mode display (detected from node)
 	const modeLabel = $derived(MODE_LABELS[$detectedMode] || 'Syncing');
 
-	// Peer count from observer stats
-	const peerCount = derived(observerStats, ($stats) => $stats?.peer_count ?? 0);
-
-	// Node uptime from observer stats (seconds)
-	const nodeUptime = derived(observerStats, ($stats) => $stats?.uptime_seconds ?? 0);
-
-	// Node starting height from observer stats (for "blocks this session" calculation)
-	const nodeStartHeight = derived(observerStats, ($stats) => $stats?.start_height ?? 0);
-
 	// Milestone tracking (derived)
 	const lastMilestone = $derived(getLastPassedMilestone(validatedHeight));
 	const nextMilestone = $derived(getNextMilestone(validatedHeight));
 
 	onMount(() => {
+		// Stop the global health check - this page handles its own polling
+		connection.stopAutoHealthCheck();
+
 		// Determine initial view state
 		if (shouldShowResume() && !$syncCompletion) {
 			viewState = 'resume';
@@ -378,7 +383,7 @@
 			viewState = 'syncing';
 		}
 
-		// Initial fetch
+		// Initial fetch (gets both blockchain info and observer stats in one batch)
 		fetchChainInfo();
 		// Also fetch external data (block height, hashrate)
 		connection.fetchExternalData();
@@ -387,6 +392,7 @@
 		let currentInterval = POLL_INTERVAL;
 
 		const poll = async () => {
+			// Single batch RPC call gets blockchain info + observer stats
 			const success = await fetchChainInfo();
 			// Use longer interval when disconnected to avoid flooding
 			currentInterval = success ? POLL_INTERVAL : ERROR_BACKOFF_INTERVAL;
@@ -416,6 +422,10 @@
 			if (sessionTrackerStarted && chainInfo) {
 				sessionHistory.endSession(chainInfo.blocks);
 			}
+
+			// Resume global health check when leaving sync page
+			connection.resumeAutoHealthCheck();
+			connection.connect();
 		};
 	});
 
@@ -719,21 +729,21 @@
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">Peers</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					{$peerCount}
+					{peerCount}
 				</div>
 			</Card>
 
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">Uptime</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					{formatDuration($nodeUptime * 1000)}
+					{formatDuration(nodeUptime * 1000)}
 				</div>
 			</Card>
 
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">This Session</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					+{formatNumber(validatedHeight - $nodeStartHeight)} <span class="text-sm">blocks</span>
+					+{formatNumber(validatedHeight - nodeStartHeight)} <span class="text-sm">blocks</span>
 				</div>
 			</Card>
 		</div>
