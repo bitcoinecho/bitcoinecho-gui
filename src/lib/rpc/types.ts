@@ -34,6 +34,7 @@ export interface ObserverStats {
 	mode: 'observer' | 'full';
 	uptime_seconds: number;
 	peer_count: number;
+	start_height: number;
 	messages_received: {
 		version: number;
 		verack: number;

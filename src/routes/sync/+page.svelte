@@ -2,7 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getBlockchainInfo } from '$lib/rpc/client';
-	import { connection, blockHeight, networkHashrate } from '$lib/stores/connection';
+	import { connection, blockHeight, networkHashrate, observerStats } from '$lib/stores/connection';
+	import { derived } from 'svelte/store';
 	import { detectedMode, MODE_LABELS } from '$lib/stores/nodeMode';
 	import {
 		sessionHistory,
@@ -356,6 +357,15 @@
 	// Mode display (detected from node)
 	const modeLabel = $derived(MODE_LABELS[$detectedMode] || 'Syncing');
 
+	// Peer count from observer stats
+	const peerCount = derived(observerStats, ($stats) => $stats?.peer_count ?? 0);
+
+	// Node uptime from observer stats (seconds)
+	const nodeUptime = derived(observerStats, ($stats) => $stats?.uptime_seconds ?? 0);
+
+	// Node starting height from observer stats (for "blocks this session" calculation)
+	const nodeStartHeight = derived(observerStats, ($stats) => $stats?.start_height ?? 0);
+
 	// Milestone tracking (derived)
 	const lastMilestone = $derived(getLastPassedMilestone(validatedHeight));
 	const nextMilestone = $derived(getNextMilestone(validatedHeight));
@@ -691,7 +701,7 @@
 		</div>
 
 		<!-- Performance Metrics -->
-		<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+		<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">Speed</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
@@ -707,16 +717,23 @@
 			</Card>
 
 			<Card>
-				<div class="text-sm text-echo-muted mb-1">Session</div>
+				<div class="text-sm text-echo-muted mb-1">Peers</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					{formatDuration(sessionDuration)}
+					{$peerCount}
+				</div>
+			</Card>
+
+			<Card>
+				<div class="text-sm text-echo-muted mb-1">Uptime</div>
+				<div class="stat-value text-2xl font-light text-echo-text">
+					{formatDuration($nodeUptime * 1000)}
 				</div>
 			</Card>
 
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">This Session</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					+{formatNumber(blocksThisSession)} <span class="text-sm">blocks</span>
+					+{formatNumber(validatedHeight - $nodeStartHeight)} <span class="text-sm">blocks</span>
 				</div>
 			</Card>
 		</div>
