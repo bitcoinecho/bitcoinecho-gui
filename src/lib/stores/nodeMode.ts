@@ -233,6 +233,19 @@ export const isModeKnown: Readable<boolean> = derived(
 );
 
 /**
+ * Derived store: Is in Initial Block Download (IBD)?
+ * True when node is still syncing historical blocks.
+ * Observer mode is never in IBD (it doesn't sync).
+ */
+export const isIBD: Readable<boolean> = derived(nodeModeState, ($state) => {
+	// Observer mode doesn't do IBD
+	if ($state.mode === 'observer') return false;
+
+	// Check blockchain info for IBD flag
+	return $state.blockchainInfo?.initialblockdownload ?? false;
+});
+
+/**
  * Derived store: Prune target in MB (if pruning enabled)
  * Returns the actual --prune value from the node, or null if not pruning
  */
