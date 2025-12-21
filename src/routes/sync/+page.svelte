@@ -41,6 +41,8 @@
 	let syncStatus = $state<SyncStatus | null>(null);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
+	let consecutiveErrors = $state(0); // Track errors for resilience
+	const ERROR_THRESHOLD = 3; // Show error UI after 3 consecutive failures
 
 	// Session tracking
 	let sessionStartTime = $state(Date.now());
@@ -251,6 +253,7 @@
 			chainInfo = info;
 			syncStatus = status;
 			error = null;
+			consecutiveErrors = 0; // Reset on success
 			loading = false;
 			isFetching = false;
 
@@ -259,7 +262,12 @@
 
 			return true;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Unknown error';
+			consecutiveErrors++;
+			// Only show error UI after ERROR_THRESHOLD consecutive failures
+			// This prevents brief network blips from disrupting the view
+			if (consecutiveErrors >= ERROR_THRESHOLD) {
+				error = e instanceof Error ? e.message : 'Unknown error';
+			}
 			loading = false;
 			isFetching = false;
 			return false;
