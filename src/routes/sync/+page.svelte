@@ -535,7 +535,8 @@
 			<span class="ml-3 text-echo-muted">Connecting to node...</span>
 		</div>
 	{:else}
-		<!-- Timeline Progress Bar -->
+		<!-- Timeline Progress Bar (hidden during headers phase - no blocks validated yet) -->
+		{#if !isHeadersPhase}
 		<Card>
 			<div class="mb-8">
 				<div class="flex justify-between items-baseline mb-2">
@@ -581,6 +582,7 @@
 				<p class="text-xs text-echo-dim mt-1">Block #{formatNumber(validatedHeight)}</p>
 			</div>
 		</Card>
+		{/if}
 
 		<!-- Headers-First Sync Phase (shown when downloading headers before blocks) -->
 		{#if isHeadersPhase}
@@ -708,16 +710,24 @@
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">Speed</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					{blocksPerSecond > 0 ? blocksPerSecond.toFixed(1) : '...'} <span class="text-sm">blk/s</span>
+					{#if isHeadersPhase || validatedHeight === 0}
+						— <span class="text-sm">blk/s</span>
+					{:else}
+						{blocksPerSecond > 0 ? blocksPerSecond.toFixed(1) : '...'} <span class="text-sm">blk/s</span>
+					{/if}
 				</div>
 			</Card>
 
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">ETA</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					{syncStatus && syncStatus.eta_seconds > 0
-						? formatDuration(syncStatus.eta_seconds * 1000)
-						: 'Calculating...'}
+					{#if isHeadersPhase || validatedHeight === 0}
+						—
+					{:else if syncStatus && syncStatus.eta_seconds > 0}
+						{formatDuration(syncStatus.eta_seconds * 1000)}
+					{:else}
+						Calculating...
+					{/if}
 				</div>
 			</Card>
 
@@ -738,7 +748,11 @@
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">This Session</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					+{formatNumber(validatedHeight - nodeStartHeight)} <span class="text-sm">blocks</span>
+					{#if isHeadersPhase || validatedHeight === 0}
+						— <span class="text-sm">blocks</span>
+					{:else}
+						+{formatNumber(Math.max(0, validatedHeight - nodeStartHeight))} <span class="text-sm">blocks</span>
+					{/if}
 				</div>
 			</Card>
 		</div>
