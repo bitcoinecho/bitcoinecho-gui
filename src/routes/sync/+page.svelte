@@ -20,7 +20,7 @@
 	import MilestoneNotification from '$lib/components/MilestoneNotification.svelte';
 	import WelcomeBack from '$lib/components/WelcomeBack.svelte';
 	import SyncComplete from '$lib/components/SyncComplete.svelte';
-	import type { BlockchainInfo } from '$lib/rpc/types';
+	import type { BlockchainInfo, SyncStatus } from '$lib/rpc/types';
 	import type { Milestone } from '$lib/data/milestones';
 	import {
 		getMilestonesBetween,
@@ -38,6 +38,7 @@
 
 	// Sync state
 	let chainInfo = $state<BlockchainInfo | null>(null);
+	let syncStatus = $state<SyncStatus | null>(null);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 
@@ -208,7 +209,7 @@
 
 		try {
 			const config = connection.getConfig();
-			const { chainInfo: info, observerStats } = await getSyncDataBatch({
+			const { chainInfo: info, observerStats, syncStatus: status } = await getSyncDataBatch({
 				endpoint: config.endpoint,
 				timeout: config.timeout
 			});
@@ -227,18 +228,9 @@
 				lastUpdateTime = Date.now();
 			}
 
-			// Calculate blocks per second
-			if (lastBlockHeight > 0 && info.blocks > lastBlockHeight) {
-				const blocksDelta = info.blocks - lastBlockHeight;
-				const timeDelta = (Date.now() - lastUpdateTime) / 1000;
-				if (timeDelta > 0) {
-					// Exponential moving average for smoother display
-					const instantRate = blocksDelta / timeDelta;
-					blocksPerSecond = blocksPerSecond === 0
-						? instantRate
-						: blocksPerSecond * 0.7 + instantRate * 0.3;
-				}
-			}
+			// Use node's blocks_per_second as the source of truth
+			// This replaces the inaccurate client-side EMA calculation
+			blocksPerSecond = status.blocks_per_second;
 
 			// Calculate headers per second (for headers-first sync phase)
 			if (lastHeaderCount > 0 && info.headers > lastHeaderCount) {
@@ -257,6 +249,7 @@
 			lastBlockHeight = info.blocks;
 			lastUpdateTime = Date.now();
 			chainInfo = info;
+			syncStatus = status;
 			error = null;
 			loading = false;
 			isFetching = false;
@@ -722,7 +715,9 @@
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">ETA</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					{formatETA(blocksRemaining, blocksPerSecond)}
+					{syncStatus && syncStatus.eta_seconds > 0
+						? formatDuration(syncStatus.eta_seconds * 1000)
+						: 'Calculating...'}
 				</div>
 			</Card>
 

@@ -120,3 +120,27 @@ export interface BlockchainInfo {
 	pruneheight?: number; // Lowest block with data (if pruned)
 	prune_target_size?: number; // Prune target in bytes (if pruned)
 }
+
+/**
+ * Sync status response
+ *
+ * Returned by: getsyncstatus
+ *
+ * Provides the "source of truth" sync metrics calculated by the node.
+ * The GUI should display these values instead of calculating them client-side.
+ */
+export interface SyncStatus {
+	mode: string; // Sync mode: "IDLE", "HEADERS", "BLOCKS", "DONE", "STALLED"
+	blocks_validated: number; // Session counter: blocks validated this session
+	best_header_height: number; // Height of best known header
+	tip_height: number; // Current validated blockchain height
+	blocks_pending: number; // Blocks queued but not yet downloaded
+	blocks_in_flight: number; // Blocks currently being downloaded
+	sync_percentage: number; // Completion percentage (0.0 - 100.0)
+	blocks_per_second: number; // Sync rate (source of truth from node)
+	eta_seconds: number; // Estimated time remaining in seconds
+	network_median_latency_ms: number; // Network baseline latency for diagnostics
+	active_sync_peers: number; // Peers actively contributing blocks
+	total_peers: number; // Total connected peers
+	initialblockdownload: boolean; // True if in IBD
+}

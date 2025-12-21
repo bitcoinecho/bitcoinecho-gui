@@ -14,7 +14,8 @@ import type {
 	ObserverStats,
 	ObservedBlocksResponse,
 	ObservedTxsResponse,
-	BlockchainInfo
+	BlockchainInfo,
+	SyncStatus
 } from './types';
 
 /**
@@ -293,24 +294,44 @@ export async function getBlockchainInfo(config?: Partial<RPCConfig>): Promise<Bl
 }
 
 /**
- * Get all sync data in a single batch request
+ * Get sync status
  *
- * Efficient method to fetch blockchain info and observer stats in one HTTP call.
- * This reduces network overhead from 2 HTTP requests to 1.
+ * Returns detailed sync metrics calculated by the node.
+ * This is the "source of truth" for sync speed and ETA.
  *
  * @param config - RPC configuration (optional)
- * @returns Object containing chainInfo and observerStats
+ * @returns Sync status with node-calculated metrics
+ */
+export async function getSyncStatus(config?: Partial<RPCConfig>): Promise<SyncStatus> {
+	return rpcCall<SyncStatus>('getsyncstatus', [], config);
+}
+
+/**
+ * Get all sync data in a single batch request
+ *
+ * Efficient method to fetch blockchain info, observer stats, and sync status
+ * in one HTTP call. This reduces network overhead from 3 HTTP requests to 1.
+ *
+ * @param config - RPC configuration (optional)
+ * @returns Object containing chainInfo, observerStats, and syncStatus
  */
 export async function getSyncDataBatch(config?: Partial<RPCConfig>): Promise<{
 	chainInfo: BlockchainInfo;
 	observerStats: ObserverStats;
+	syncStatus: SyncStatus;
 }> {
-	const [chainInfo, observerStats] = await rpcBatchCall<[BlockchainInfo, ObserverStats]>(
-		[{ method: 'getblockchaininfo' }, { method: 'getobserverstats' }],
+	const [chainInfo, observerStats, syncStatus] = await rpcBatchCall<
+		[BlockchainInfo, ObserverStats, SyncStatus]
+	>(
+		[
+			{ method: 'getblockchaininfo' },
+			{ method: 'getobserverstats' },
+			{ method: 'getsyncstatus' }
+		],
 		config
 	);
 
-	return { chainInfo, observerStats };
+	return { chainInfo, observerStats, syncStatus };
 }
 
 /**
