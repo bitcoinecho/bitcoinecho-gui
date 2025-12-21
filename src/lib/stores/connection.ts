@@ -24,6 +24,7 @@ interface ConnectionState {
 	blockHeight: number; // Current Bitcoin block height from mempool.space
 	lastBlockHeightFetch: number; // Timestamp of last block height fetch
 	networkHashrate: number; // Current network hashrate in EH/s
+	consecutiveErrors: number; // Track consecutive failures for resilience
 }
 
 /**
@@ -70,8 +71,15 @@ const connectionState: Writable<ConnectionState> = writable({
 	stats: null,
 	blockHeight: 0,
 	lastBlockHeightFetch: 0,
-	networkHashrate: 0
+	networkHashrate: 0,
+	consecutiveErrors: 0
 });
+
+/**
+ * Number of consecutive errors before showing disconnected state
+ * This prevents brief network blips from disrupting the UI
+ */
+const ERROR_THRESHOLD = 3;
 
 /**
  * How often to refresh block height (30 seconds)
@@ -210,18 +218,35 @@ async function healthCheck(): Promise<void> {
 				stats,
 				blockHeight: newBlockHeight || s.blockHeight,
 				lastBlockHeightFetch: newLastFetch,
-				networkHashrate: newHashrate || s.networkHashrate
+				networkHashrate: newHashrate || s.networkHashrate,
+				consecutiveErrors: 0 // Reset on success
 			}));
+		} else {
+			// Even if stats didn't change, reset error counter on success
+			connectionState.update((s) => ({ ...s, consecutiveErrors: 0 }));
 		}
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+		const currentState = get(connectionState);
+		const newErrorCount = currentState.consecutiveErrors + 1;
 
-		connectionState.update((s) => ({
-			...s,
-			status: 'error',
-			lastError: errorMessage,
-			stats: null
-		}));
+		// Only transition to error status after ERROR_THRESHOLD consecutive failures
+		// This prevents brief network blips from disrupting the UI
+		if (newErrorCount >= ERROR_THRESHOLD) {
+			connectionState.update((s) => ({
+				...s,
+				status: 'error',
+				lastError: errorMessage,
+				stats: null,
+				consecutiveErrors: newErrorCount
+			}));
+		} else {
+			// Silently track the error but keep showing connected state
+			connectionState.update((s) => ({
+				...s,
+				consecutiveErrors: newErrorCount
+			}));
+		}
 
 		// Schedule reconnect
 		setTimeout(healthCheck, RECONNECT_DELAY);
