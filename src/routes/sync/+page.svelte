@@ -62,7 +62,8 @@
 
 	// Observer stats (from batch RPC)
 	let peerCount = $state(0);
-	let nodeUptime = $state(0);
+	let serverUptime = $state(0); // Last known uptime from node
+	let lastUptimeUpdate = $state(Date.now()); // When we received it
 	let nodeStartHeight = $state(0);
 
 	// Polling
@@ -70,6 +71,11 @@
 	let timeInterval: ReturnType<typeof setInterval> | null = null;
 	let now = $state(Date.now());
 	let isFetching = $state(false); // Prevent overlapping requests
+
+	// Smoothly interpolated uptime (increments locally between RPC polls)
+	const displayedUptime = $derived(
+		serverUptime + Math.floor((now - lastUptimeUpdate) / 1000)
+	);
 
 	// Milestone tracking
 	let currentMilestoneNotification = $state<Milestone | null>(null);
@@ -218,7 +224,8 @@
 
 			// Update observer stats (peer count, uptime, start height)
 			peerCount = observerStats.peer_count;
-			nodeUptime = observerStats.uptime_seconds;
+			serverUptime = observerStats.uptime_seconds;
+			lastUptimeUpdate = Date.now(); // Reset interpolation reference
 			nodeStartHeight = observerStats.start_height;
 
 			// Track session start
@@ -749,7 +756,7 @@
 			<Card>
 				<div class="text-sm text-echo-muted mb-1">Uptime</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
-					{formatDuration(nodeUptime * 1000)}
+					{formatDuration(displayedUptime * 1000)}
 				</div>
 			</Card>
 
