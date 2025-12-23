@@ -16,9 +16,9 @@
 	let timeInterval: ReturnType<typeof setInterval> | null = null;
 
 	/**
-	 * Golden ratio interval (1.618s) - the single heartbeat for all RPC calls
+	 * Poll interval (5s) - reduced from 1.618s to minimize RPC load during IBD
 	 */
-	const HEARTBEAT_INTERVAL = 1618;
+	const HEARTBEAT_INTERVAL = 5000;
 
 	// Reactive time for updating "X ago" timestamps
 	let now = $state(Date.now());
@@ -123,7 +123,7 @@
 		// Initial heartbeat
 		heartbeat();
 
-		// Single heartbeat every 1.618 seconds (golden ratio)
+		// Single heartbeat every 5 seconds
 		// This is the ONLY timer making RPC calls
 		pollInterval = setInterval(heartbeat, HEARTBEAT_INTERVAL);
 

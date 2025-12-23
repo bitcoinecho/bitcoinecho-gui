@@ -124,10 +124,10 @@ async function fetchNetworkHashrate(): Promise<number> {
 
 /**
  * Health check interval (milliseconds)
- * NOTE: Health checking is now driven by the observer page's 1.618s poll.
+ * NOTE: Health checking is now driven by the observer page's 5s poll.
  * This value is only used for initial connection retry attempts.
  */
-const HEALTH_CHECK_INTERVAL = 1618; // Golden ratio (matches observer page)
+const HEALTH_CHECK_INTERVAL = 5000; // Reduced from 1.618s to minimize RPC load
 
 /**
  * Reconnect delay after failure (milliseconds)

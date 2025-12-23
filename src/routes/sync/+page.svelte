@@ -77,9 +77,9 @@
 	let lastMilestoneCheckHeight = $state(0);
 
 	/**
-	 * Poll interval - golden ratio (1.618s) matches observer page
+	 * Poll interval (5s) - reduced from 1.618s to minimize RPC load during IBD
 	 */
-	const POLL_INTERVAL = 1618;
+	const POLL_INTERVAL = 5000;
 
 	/**
 	 * Backoff interval when disconnected (10 seconds)
