@@ -52,6 +52,8 @@
 
 	// Performance tracking
 	let blocksPerSecond = $state(0);
+	let previousBlocksPerSecond = $state(0); // For tweening
+	let speedUpdateTime = $state(Date.now()); // When we received the new speed
 	let lastBlockHeight = $state(0);
 	let lastUpdateTime = $state(Date.now());
 
@@ -76,6 +78,15 @@
 	const displayedUptime = $derived(
 		serverUptime + Math.floor((now - lastUptimeUpdate) / 1000)
 	);
+
+	// Smoothly interpolated speed (tweens from previous to current over poll interval)
+	const displayedSpeed = $derived(() => {
+		const elapsed = now - speedUpdateTime;
+		const progress = Math.min(elapsed / POLL_INTERVAL, 1); // 0 to 1 over 5 seconds
+		// Ease-out for smoother feel: starts fast, slows down
+		const eased = 1 - Math.pow(1 - progress, 2);
+		return previousBlocksPerSecond + (blocksPerSecond - previousBlocksPerSecond) * eased;
+	});
 
 	// Milestone tracking
 	let currentMilestoneNotification = $state<Milestone | null>(null);
@@ -239,7 +250,10 @@
 
 			// Use node's blocks_per_second as the source of truth
 			// This replaces the inaccurate client-side EMA calculation
+			// Store previous for tweening animation
+			previousBlocksPerSecond = blocksPerSecond;
 			blocksPerSecond = status.blocks_per_second;
+			speedUpdateTime = Date.now();
 
 			// Calculate headers per second (for headers-first sync phase)
 			if (lastHeaderCount > 0 && info.headers > lastHeaderCount) {
@@ -415,10 +429,10 @@
 			connection.fetchExternalData();
 		}, 30000);
 
-		// Update time for durations
+		// Update time for durations and smooth animations (250ms for 20 tween steps per RPC poll)
 		timeInterval = setInterval(() => {
 			now = Date.now();
-		}, 1000);
+		}, 250);
 
 		// Cleanup function needs to handle both interval types
 		return () => {
@@ -728,7 +742,7 @@
 					{#if isHeadersPhase || validatedHeight === 0}
 						— <span class="text-sm">blk/s</span>
 					{:else}
-						{blocksPerSecond > 0 ? blocksPerSecond.toFixed(1) : '...'} <span class="text-sm">blk/s</span>
+						{displayedSpeed() > 0 ? displayedSpeed().toFixed(1) : '...'} <span class="text-sm">blk/s</span>
 					{/if}
 				</div>
 			</Card>
