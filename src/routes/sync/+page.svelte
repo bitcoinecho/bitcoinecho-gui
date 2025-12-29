@@ -50,8 +50,12 @@
 	let hasSessionStart = $state(false);
 	let sessionTrackerStarted = $state(false);
 
-	// Performance tracking
+	// Performance tracking - store previous values for tweening
 	let pendingValidation = $state(0);
+	let prevPendingValidation = $state(0);
+	let prevDownloadedCount = $state(0);
+	let prevValidatedHeight = $state(0);
+	let lastRpcUpdate = $state(Date.now());
 	let lastBlockHeight = $state(0);
 	let lastUpdateTime = $state(Date.now());
 
@@ -76,6 +80,15 @@
 	const displayedUptime = $derived(
 		serverUptime + Math.floor((now - lastUptimeUpdate) / 1000)
 	);
+
+	// Tweening helper - eases between previous and current value over poll interval
+	function tweenValue(prev: number, current: number): number {
+		const elapsed = now - lastRpcUpdate;
+		const progress = Math.min(elapsed / POLL_INTERVAL, 1);
+		// Ease-out for smooth feel
+		const eased = 1 - Math.pow(1 - progress, 2);
+		return Math.round(prev + (current - prev) * eased);
+	}
 
 	// Milestone tracking
 	let currentMilestoneNotification = $state<Milestone | null>(null);
@@ -237,8 +250,14 @@
 				lastUpdateTime = Date.now();
 			}
 
+			// Store previous values for tweening before updating
+			prevValidatedHeight = chainInfo?.blocks ?? 0;
+			prevDownloadedCount = prevValidatedHeight + pendingValidation;
+			prevPendingValidation = pendingValidation;
+
 			// pending_validation: gap between downloaded and validated
 			pendingValidation = status.pending_validation ?? 0;
+			lastRpcUpdate = Date.now();
 
 			// Calculate headers per second (for headers-first sync phase)
 			if (lastHeaderCount > 0 && info.headers > lastHeaderCount) {
@@ -292,6 +311,11 @@
 	const sessionDuration = $derived(now - sessionStartTime);
 	const blocksThisSession = $derived(validatedHeight - sessionStartBlocks);
 	const estimatedDate = $derived(estimateBlockDate(validatedHeight));
+
+	// Tweened display values (smooth animation between RPC updates)
+	const displayedDownloaded = $derived(tweenValue(prevDownloadedCount, downloadedCount));
+	const displayedValidated = $derived(tweenValue(prevValidatedHeight, validatedHeight));
+	const displayedPending = $derived(tweenValue(prevPendingValidation, pendingValidation));
 
 	// Headers-first sync phase detection and progress
 	const isHeadersPhase = $derived(headerCount > 0 && validatedHeight === 0);
@@ -592,21 +616,21 @@
 				</div>
 			</div>
 
-			<!-- Stats grid - all key metrics in one place -->
-			<div class="grid grid-cols-3 md:grid-cols-5 gap-4 pt-4 border-t border-echo-border">
+			<!-- Stats grid - all key metrics in one place (tweened for smooth animation) -->
+			<div class="grid grid-cols-3 md:grid-cols-6 gap-4 pt-4 border-t border-echo-border">
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Downloaded</div>
-					<div class="text-xl font-light text-echo-text">{formatNumber(downloadedCount)}</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(displayedDownloaded)}</div>
 					<div class="text-xs text-echo-muted">{formatNumber(blocksRemaining)} to go</div>
 				</div>
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Validated</div>
-					<div class="text-xl font-light text-echo-text">{formatNumber(validatedHeight)}</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(displayedValidated)}</div>
 					<div class="text-xs text-echo-muted">{formatDate(estimatedDate)}</div>
 				</div>
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Pending</div>
-					<div class="text-xl font-light text-echo-text">{formatNumber(pendingValidation)}</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(displayedPending)}</div>
 					<div class="text-xs text-echo-muted">awaiting validation</div>
 				</div>
 				<div class="text-center">
@@ -621,9 +645,14 @@
 					<div class="text-xs text-echo-muted">{downloadProgress.toFixed(1)}% complete</div>
 				</div>
 				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Node</div>
-					<div class="text-xl font-light text-echo-text">{peerCount} peers</div>
-					<div class="text-xs text-echo-muted">{formatDuration(displayedUptime * 1000)}</div>
+					<div class="text-xs text-echo-dim mb-1">Peers</div>
+					<div class="text-xl font-light text-echo-text">{peerCount}</div>
+					<div class="text-xs text-echo-muted">connected</div>
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Uptime</div>
+					<div class="text-xl font-light text-echo-text">{formatDuration(displayedUptime * 1000)}</div>
+					<div class="text-xs text-echo-muted">node running</div>
 				</div>
 			</div>
 		</Card>
