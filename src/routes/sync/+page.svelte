@@ -284,9 +284,11 @@
 	const networkHeight = $derived($blockHeight || 0);
 	const validatedHeight = $derived(chainInfo?.blocks || 0);
 	const headerCount = $derived(chainInfo?.headers || 0);
-	const blocksRemaining = $derived(Math.max(0, networkHeight - validatedHeight));
-	const syncProgress = $derived(calcProgress(validatedHeight, networkHeight));
-	const progressBarWidth = $derived(`${syncProgress}%`);
+	const downloadedCount = $derived(validatedHeight + pendingValidation);
+	const blocksRemaining = $derived(Math.max(0, networkHeight - downloadedCount));
+	const downloadProgress = $derived(calcProgress(downloadedCount, networkHeight));
+	const validationProgress = $derived(calcProgress(validatedHeight, networkHeight)); // For session tracking
+	const progressBarWidth = $derived(`${downloadProgress}%`);
 	const sessionDuration = $derived(now - sessionStartTime);
 	const blocksThisSession = $derived(validatedHeight - sessionStartBlocks);
 	const estimatedDate = $derived(estimateBlockDate(validatedHeight));
@@ -447,7 +449,7 @@
 
 		// Update progress periodically
 		if (sessionTrackerStarted && validatedHeight > 0) {
-			sessionHistory.updateProgress(validatedHeight, syncProgress);
+			sessionHistory.updateProgress(validatedHeight, validationProgress);
 		}
 
 		// Detect sync completion (transition from not synced to synced)
@@ -528,7 +530,7 @@
 				{:else if isSynced()}
 					<Badge variant="success">Synced</Badge>
 				{:else}
-					<Badge variant="warning">Syncing {syncProgress.toFixed(1)}%</Badge>
+					<Badge variant="warning">Syncing {downloadProgress.toFixed(1)}%</Badge>
 				{/if}
 				<span class="text-xs text-echo-dim font-mono">{modeLabel}</span>
 			</div>
@@ -552,7 +554,8 @@
 		<!-- Timeline Progress Bar (hidden during headers phase - no blocks validated yet) -->
 		{#if !isHeadersPhase}
 		<Card>
-			<div class="mb-8">
+			<!-- Progress bar section -->
+			<div class="mb-6">
 				<div class="flex justify-between items-baseline mb-2">
 					<span class="text-sm text-echo-muted">Timeline: 2009 to Present</span>
 					<span class="text-sm font-mono text-echo-text">
@@ -578,7 +581,7 @@
 					<span class="timeline-marker right-0 text-echo-text" style="left: 100%">Now</span>
 
 					<!-- Current position marker -->
-					{#if syncProgress > 0 && syncProgress < 100}
+					{#if downloadProgress > 0 && downloadProgress < 100}
 						<span
 							class="timeline-marker text-echo-accent font-bold"
 							style="left: {progressBarWidth}"
@@ -589,11 +592,39 @@
 				</div>
 			</div>
 
-			<!-- Current position info -->
-			<div class="text-center py-4 border-t border-echo-border">
-				<p class="text-echo-muted text-sm">Currently validating blocks from</p>
-				<p class="text-2xl font-light text-echo-text mt-1">{formatDate(estimatedDate)}</p>
-				<p class="text-xs text-echo-dim mt-1">Block #{formatNumber(validatedHeight)}</p>
+			<!-- Stats grid - all key metrics in one place -->
+			<div class="grid grid-cols-3 md:grid-cols-5 gap-4 pt-4 border-t border-echo-border">
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Downloaded</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(downloadedCount)}</div>
+					<div class="text-xs text-echo-muted">{formatNumber(blocksRemaining)} to go</div>
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Validated</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(validatedHeight)}</div>
+					<div class="text-xs text-echo-muted">{formatDate(estimatedDate)}</div>
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Pending</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(pendingValidation)}</div>
+					<div class="text-xs text-echo-muted">awaiting validation</div>
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">ETA</div>
+					<div class="text-xl font-light text-echo-text">
+						{#if syncStatus && syncStatus.eta_seconds > 0}
+							{formatDuration(syncStatus.eta_seconds * 1000)}
+						{:else}
+							Calculating...
+						{/if}
+					</div>
+					<div class="text-xs text-echo-muted">{downloadProgress.toFixed(1)}% complete</div>
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Node</div>
+					<div class="text-xl font-light text-echo-text">{peerCount} peers</div>
+					<div class="text-xs text-echo-muted">{formatDuration(displayedUptime * 1000)}</div>
+				</div>
 			</div>
 		</Card>
 		{/if}
@@ -668,99 +699,7 @@
 			/>
 		{/if}
 
-		<!-- Dual Column: Network vs Local -->
-		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-			<!-- Live Network (from mempool.space) -->
-			<Card>
-				<div class="flex items-center justify-between mb-4">
-					<h2 class="text-lg font-light text-echo-text">Live Network</h2>
-					<span class="text-xs text-echo-dim">via mempool.space</span>
-				</div>
-
-				<div class="space-y-4">
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Block Height</span>
-						<span class="font-mono text-echo-text stat-value">{formatNumber(networkHeight)}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Hashrate</span>
-						<span class="font-mono text-echo-text stat-value">
-							{$networkHashrate > 0 ? $networkHashrate.toFixed(2) + ' EH/s' : '...'}
-						</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Chain</span>
-						<span class="font-mono text-echo-text">{chainInfo?.chain || 'main'}net</span>
-					</div>
-				</div>
-			</Card>
-
-			<!-- Your Progress (from local node) -->
-			<Card>
-				<div class="flex items-center justify-between mb-4">
-					<h2 class="text-lg font-light text-echo-text">Your Progress</h2>
-					<span class="text-xs text-echo-dim">local validation</span>
-				</div>
-
-				<div class="space-y-4">
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Validated</span>
-						<span class="font-mono text-echo-text stat-value">{formatNumber(validatedHeight)}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Remaining</span>
-						<span class="font-mono text-echo-text stat-value">{formatNumber(blocksRemaining)}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Progress</span>
-						<span class="font-mono text-echo-text stat-value">{syncProgress.toFixed(2)}%</span>
-					</div>
-				</div>
-			</Card>
-		</div>
-
-		<!-- Performance Metrics -->
-		<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-			<Card>
-				<div class="text-sm text-echo-muted mb-1">Downloaded</div>
-				<div class="stat-value text-2xl font-light text-echo-text">
-					{#if isHeadersPhase || validatedHeight === 0}
-						—
-					{:else}
-						{formatNumber(validatedHeight + pendingValidation)}
-					{/if}
-				</div>
-			</Card>
-
-			<Card>
-				<div class="text-sm text-echo-muted mb-1">ETA</div>
-				<div class="stat-value text-2xl font-light text-echo-text">
-					{#if isHeadersPhase || validatedHeight === 0}
-						—
-					{:else if syncStatus && syncStatus.eta_seconds > 0}
-						{formatDuration(syncStatus.eta_seconds * 1000)}
-					{:else}
-						Calculating...
-					{/if}
-				</div>
-			</Card>
-
-			<Card>
-				<div class="text-sm text-echo-muted mb-1">Peers</div>
-				<div class="stat-value text-2xl font-light text-echo-text">
-					{peerCount}
-				</div>
-			</Card>
-
-			<Card>
-				<div class="text-sm text-echo-muted mb-1">Uptime</div>
-				<div class="stat-value text-2xl font-light text-echo-text">
-					{formatDuration(displayedUptime * 1000)}
-				</div>
-			</Card>
-		</div>
-
-		<!-- Storage & Chain Info -->
+		<!-- Chain Details (collapsible) -->
 		<Card>
 			<h2 class="text-lg font-light text-echo-text mb-4">Chain Details</h2>
 
