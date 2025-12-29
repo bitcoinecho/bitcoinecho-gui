@@ -128,6 +128,12 @@ export interface BlockchainInfo {
  *
  * Provides the "source of truth" sync metrics calculated by the node.
  * The GUI should display these values instead of calculating them client-side.
+ *
+ * KEY INSIGHT: download_rate and validation_rate are DIFFERENT:
+ * - download_rate: blocks arriving from network (any order, parallel)
+ * - validation_rate: blocks added to chain (strict order, sequential)
+ * When validation_rate << download_rate, we have head-of-line waiting
+ * (not a bug - validation naturally catches up when missing blocks arrive).
  */
 export interface SyncStatus {
 	mode: string; // Sync mode: "IDLE", "HEADERS", "BLOCKS", "DONE", "STALLED"
@@ -137,7 +143,10 @@ export interface SyncStatus {
 	blocks_pending: number; // Blocks queued but not yet downloaded
 	blocks_in_flight: number; // Blocks currently being downloaded
 	sync_percentage: number; // Completion percentage (0.0 - 100.0)
-	blocks_per_second: number; // Sync rate (source of truth from node)
+	blocks_per_second: number; // Legacy: same as validation_rate
+	download_rate: number; // Blocks downloaded per second (any order)
+	validation_rate: number; // Blocks validated per second (strict order)
+	pending_validation: number; // Downloaded but not yet validated (gap)
 	eta_seconds: number; // Estimated time remaining in seconds
 	network_median_latency_ms: number; // Network baseline latency for diagnostics
 	active_sync_peers: number; // Peers actively contributing blocks

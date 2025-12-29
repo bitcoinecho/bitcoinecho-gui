@@ -51,9 +51,7 @@
 	let sessionTrackerStarted = $state(false);
 
 	// Performance tracking
-	let blocksPerSecond = $state(0);
-	let previousBlocksPerSecond = $state(0); // For tweening
-	let speedUpdateTime = $state(Date.now()); // When we received the new speed
+	let pendingValidation = $state(0);
 	let lastBlockHeight = $state(0);
 	let lastUpdateTime = $state(Date.now());
 
@@ -78,15 +76,6 @@
 	const displayedUptime = $derived(
 		serverUptime + Math.floor((now - lastUptimeUpdate) / 1000)
 	);
-
-	// Smoothly interpolated speed (tweens from previous to current over poll interval)
-	const displayedSpeed = $derived(() => {
-		const elapsed = now - speedUpdateTime;
-		const progress = Math.min(elapsed / POLL_INTERVAL, 1); // 0 to 1 over 5 seconds
-		// Ease-out for smoother feel: starts fast, slows down
-		const eased = 1 - Math.pow(1 - progress, 2);
-		return previousBlocksPerSecond + (blocksPerSecond - previousBlocksPerSecond) * eased;
-	});
 
 	// Milestone tracking
 	let currentMilestoneNotification = $state<Milestone | null>(null);
@@ -248,12 +237,8 @@
 				lastUpdateTime = Date.now();
 			}
 
-			// Use node's blocks_per_second as the source of truth
-			// This replaces the inaccurate client-side EMA calculation
-			// Store previous for tweening animation
-			previousBlocksPerSecond = blocksPerSecond;
-			blocksPerSecond = status.blocks_per_second;
-			speedUpdateTime = Date.now();
+			// pending_validation: gap between downloaded and validated
+			pendingValidation = status.pending_validation ?? 0;
 
 			// Calculate headers per second (for headers-first sync phase)
 			if (lastHeaderCount > 0 && info.headers > lastHeaderCount) {
@@ -735,14 +720,14 @@
 		</div>
 
 		<!-- Performance Metrics -->
-		<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+		<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
 			<Card>
-				<div class="text-sm text-echo-muted mb-1">Speed</div>
+				<div class="text-sm text-echo-muted mb-1">Downloaded</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
 					{#if isHeadersPhase || validatedHeight === 0}
-						— <span class="text-sm">blk/s</span>
+						—
 					{:else}
-						{displayedSpeed() > 0 ? displayedSpeed().toFixed(1) : '...'} <span class="text-sm">blk/s</span>
+						{formatNumber(validatedHeight + pendingValidation)}
 					{/if}
 				</div>
 			</Card>
@@ -771,17 +756,6 @@
 				<div class="text-sm text-echo-muted mb-1">Uptime</div>
 				<div class="stat-value text-2xl font-light text-echo-text">
 					{formatDuration(displayedUptime * 1000)}
-				</div>
-			</Card>
-
-			<Card>
-				<div class="text-sm text-echo-muted mb-1">This Session</div>
-				<div class="stat-value text-2xl font-light text-echo-text">
-					{#if isHeadersPhase || validatedHeight === 0}
-						— <span class="text-sm">blocks</span>
-					{:else}
-						+{formatNumber(Math.max(0, validatedHeight - nodeStartHeight))} <span class="text-sm">blocks</span>
-					{/if}
 				</div>
 			</Card>
 		</div>
