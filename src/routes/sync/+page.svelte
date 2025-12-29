@@ -717,6 +717,40 @@
 						After headers complete, block download will begin automatically.
 					</p>
 				</div>
+
+				<!-- Stats grid during headers phase - show peers/uptime, emdash for block metrics -->
+				<div class="grid grid-cols-3 md:grid-cols-6 gap-4 pt-4 mt-4 border-t border-echo-border">
+					<div class="text-center">
+						<div class="text-xs text-echo-dim mb-1">Downloaded</div>
+						<div class="text-xl font-light text-echo-text">—</div>
+						<div class="text-xs text-echo-muted">waiting</div>
+					</div>
+					<div class="text-center">
+						<div class="text-xs text-echo-dim mb-1">Validated</div>
+						<div class="text-xl font-light text-echo-text">—</div>
+						<div class="text-xs text-echo-muted">waiting</div>
+					</div>
+					<div class="text-center">
+						<div class="text-xs text-echo-dim mb-1">Pending</div>
+						<div class="text-xl font-light text-echo-text">—</div>
+						<div class="text-xs text-echo-muted">waiting</div>
+					</div>
+					<div class="text-center">
+						<div class="text-xs text-echo-dim mb-1">ETA</div>
+						<div class="text-xl font-light text-echo-text">—</div>
+						<div class="text-xs text-echo-muted">phase 2</div>
+					</div>
+					<div class="text-center">
+						<div class="text-xs text-echo-dim mb-1">Peers</div>
+						<div class="text-xl font-light text-echo-text">{peerCount}</div>
+						<div class="text-xs text-echo-muted">connected</div>
+					</div>
+					<div class="text-center">
+						<div class="text-xs text-echo-dim mb-1">Uptime</div>
+						<div class="text-xl font-light text-echo-text">{formatDuration(displayedUptime * 1000)}</div>
+						<div class="text-xs text-echo-muted">node running</div>
+					</div>
+				</div>
 			</Card>
 		{/if}
 
