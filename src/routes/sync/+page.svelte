@@ -64,6 +64,12 @@
 	let lastHeaderCount = $state(0);
 	let lastHeaderUpdateTime = $state(Date.now());
 
+	// Header sync tweening (previous values for smooth animation)
+	let prevHeaderCount = $state(0);
+	let prevHeadersPerSecond = $state(0);
+	let headerEtaSeconds = $state(0); // Last calculated ETA from RPC
+	let lastHeaderEtaUpdate = $state(Date.now()); // When we calculated it
+
 	// Observer stats (from batch RPC)
 	let peerCount = $state(0);
 	let serverUptime = $state(0); // Last known uptime from node
@@ -259,6 +265,10 @@
 			pendingValidation = status.pending_validation ?? 0;
 			lastRpcUpdate = Date.now();
 
+			// Store previous header values for tweening before updating
+			prevHeaderCount = lastHeaderCount;
+			prevHeadersPerSecond = headersPerSecond;
+
 			// Calculate headers per second (for headers-first sync phase)
 			if (lastHeaderCount > 0 && info.headers > lastHeaderCount) {
 				const headersDelta = info.headers - lastHeaderCount;
@@ -272,6 +282,13 @@
 			}
 			lastHeaderCount = info.headers;
 			lastHeaderUpdateTime = Date.now();
+
+			// Calculate header sync ETA for countdown display
+			const currentHeadersRemaining = ($blockHeight || 0) - info.headers;
+			if (headersPerSecond > 0 && currentHeadersRemaining > 0) {
+				headerEtaSeconds = Math.round(currentHeadersRemaining / headersPerSecond);
+				lastHeaderEtaUpdate = Date.now();
+			}
 
 			lastBlockHeight = info.blocks;
 			lastUpdateTime = Date.now();
@@ -316,6 +333,18 @@
 	const displayedDownloaded = $derived(tweenValue(prevDownloadedCount, downloadedCount));
 	const displayedValidated = $derived(tweenValue(prevValidatedHeight, validatedHeight));
 	const displayedPending = $derived(tweenValue(prevPendingValidation, pendingValidation));
+
+	// Header sync tweened display values
+	const displayedHeaderCount = $derived(tweenValue(prevHeaderCount, headerCount));
+	const displayedHeadersPerSecond = $derived(tweenValue(prevHeadersPerSecond, Math.round(headersPerSecond)));
+	const displayedHeadersRemaining = $derived(Math.max(0, networkHeight - displayedHeaderCount));
+	// Header ETA counts down between polls (opposite of uptime counting up)
+	const displayedHeaderEta = $derived(
+		Math.max(0, headerEtaSeconds - Math.floor((now - lastHeaderEtaUpdate) / 1000))
+	);
+	// Tweened header progress bar (uses displayedHeaderCount for smooth animation)
+	const displayedHeaderProgress = $derived(networkHeight > 0 ? (displayedHeaderCount / networkHeight) * 100 : 0);
+	const displayedHeaderProgressBarWidth = $derived(`${Math.min(displayedHeaderProgress, 100)}%`);
 
 	// Headers-first sync phase detection and progress
 	const isHeadersPhase = $derived(headerCount > 0 && validatedHeight === 0);
@@ -680,13 +709,13 @@
 						<div class="flex justify-between text-sm mb-1">
 							<span class="text-echo-muted">Header Progress</span>
 							<span class="font-mono text-echo-text">
-								{formatNumber(headerCount)} / {formatNumber(networkHeight)}
+								{formatNumber(displayedHeaderCount)} / {formatNumber(networkHeight)}
 							</span>
 						</div>
 						<div class="h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
 							<div
-								class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-500"
-								style="width: {headerProgressBarWidth}"
+								class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full"
+								style="width: {displayedHeaderProgressBarWidth}"
 							></div>
 						</div>
 					</div>
@@ -696,19 +725,19 @@
 						<div>
 							<div class="text-xs text-echo-dim mb-1">Speed</div>
 							<div class="font-mono text-echo-text">
-								{headersPerSecond > 0 ? Math.round(headersPerSecond).toLocaleString() : '...'} <span class="text-xs text-echo-muted">hdr/s</span>
+								{displayedHeadersPerSecond > 0 ? displayedHeadersPerSecond.toLocaleString() : '...'} <span class="text-xs text-echo-muted">hdr/s</span>
 							</div>
 						</div>
 						<div>
 							<div class="text-xs text-echo-dim mb-1">Remaining</div>
 							<div class="font-mono text-echo-text">
-								{formatNumber(headersRemaining)}
+								{formatNumber(displayedHeadersRemaining)}
 							</div>
 						</div>
 						<div>
 							<div class="text-xs text-echo-dim mb-1">ETA</div>
 							<div class="font-mono text-echo-text">
-								{headersPerSecond > 0 ? formatETA(headersRemaining, headersPerSecond) : 'Calculating...'}
+								{displayedHeaderEta > 0 ? formatDuration(displayedHeaderEta * 1000) : 'Calculating...'}
 							</div>
 						</div>
 					</div>
