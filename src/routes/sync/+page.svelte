@@ -70,6 +70,12 @@
 	let headerEtaSeconds = $state(0); // Last calculated ETA from RPC
 	let lastHeaderEtaUpdate = $state(Date.now()); // When we calculated it
 
+	// Block sync ETA tweening (simple tween, not countdown - ETA fluctuates too much)
+	let prevBlockEtaSeconds = $state(0);
+
+	// Peer count tweening
+	let prevPeerCount = $state(0);
+
 	// Observer stats (from batch RPC)
 	let peerCount = $state(0);
 	let serverUptime = $state(0); // Last known uptime from node
@@ -242,6 +248,7 @@
 			});
 
 			// Update observer stats (peer count, uptime, start height)
+			prevPeerCount = peerCount; // Store previous for tweening
 			peerCount = observerStats.peer_count;
 			serverUptime = observerStats.uptime_seconds;
 			lastUptimeUpdate = Date.now(); // Reset interpolation reference
@@ -292,8 +299,13 @@
 
 			lastBlockHeight = info.blocks;
 			lastUpdateTime = Date.now();
+
+			// Store previous block ETA for simple tweening (not countdown - ETA fluctuates too much)
+			prevBlockEtaSeconds = syncStatus?.eta_seconds ?? 0;
+
 			chainInfo = info;
 			syncStatus = status;
+
 			error = null;
 			consecutiveErrors = 0; // Reset on success
 			loading = false;
@@ -334,6 +346,10 @@
 	const displayedValidated = $derived(tweenValue(prevValidatedHeight, validatedHeight));
 	const displayedPending = $derived(tweenValue(prevPendingValidation, pendingValidation));
 
+	// Tweened blocks progress bar (uses displayedValidated for smooth animation)
+	const displayedBlocksProgress = $derived(networkHeight > 0 ? (displayedValidated / networkHeight) * 100 : 0);
+	const displayedBlocksProgressBarWidth = $derived(`${Math.min(displayedBlocksProgress, 100)}%`);
+
 	// Header sync tweened display values
 	const displayedHeaderCount = $derived(tweenValue(prevHeaderCount, headerCount));
 	const displayedHeadersPerSecond = $derived(tweenValue(prevHeadersPerSecond, Math.round(headersPerSecond)));
@@ -345,6 +361,13 @@
 	// Tweened header progress bar (uses displayedHeaderCount for smooth animation)
 	const displayedHeaderProgress = $derived(networkHeight > 0 ? (displayedHeaderCount / networkHeight) * 100 : 0);
 	const displayedHeaderProgressBarWidth = $derived(`${Math.min(displayedHeaderProgress, 100)}%`);
+
+	// Block ETA tweened value (simple tween, not countdown - ETA fluctuates too much)
+	const currentBlockEta = $derived(syncStatus?.eta_seconds ?? 0);
+	const displayedBlockEta = $derived(tweenValue(prevBlockEtaSeconds, currentBlockEta));
+
+	// Peer count tweened value
+	const displayedPeerCount = $derived(tweenValue(prevPeerCount, peerCount));
 
 	// Headers-first sync phase detection and progress
 	const isHeadersPhase = $derived(headerCount > 0 && validatedHeight === 0);
@@ -530,11 +553,6 @@
 </script>
 
 <style>
-	/* Progress bar animation */
-	.progress-fill {
-		transition: width 0.5s ease-out;
-	}
-
 	/* Timeline markers */
 	.timeline-marker {
 		position: absolute;
@@ -612,16 +630,16 @@
 				<div class="flex justify-between items-baseline mb-2">
 					<span class="text-sm text-echo-muted">Timeline: 2009 to Present</span>
 					<span class="text-sm font-mono text-echo-text">
-						{formatNumber(validatedHeight)} / {formatNumber(networkHeight)} blocks
+						{formatNumber(displayedValidated)} / {formatNumber(networkHeight)} blocks
 					</span>
 				</div>
 
 				<!-- Progress bar container -->
 				<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
-					<!-- Validated progress -->
+					<!-- Validated progress (tweened for smooth animation) -->
 					<div
-						class="progress-fill absolute left-0 top-0 h-full bg-gradient-to-r from-echo-accent to-emerald-500 rounded-full"
-						style="width: {progressBarWidth}"
+						class="absolute left-0 top-0 h-full bg-gradient-to-r from-echo-accent to-emerald-500 rounded-full"
+						style="width: {displayedBlocksProgressBarWidth}"
 					></div>
 				</div>
 
@@ -665,8 +683,8 @@
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">ETA</div>
 					<div class="text-xl font-light text-echo-text">
-						{#if syncStatus && syncStatus.eta_seconds > 0}
-							{formatDuration(syncStatus.eta_seconds * 1000)}
+						{#if displayedBlockEta > 0}
+							{formatDuration(displayedBlockEta * 1000)}
 						{:else}
 							Calculating...
 						{/if}
@@ -675,7 +693,7 @@
 				</div>
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Peers</div>
-					<div class="text-xl font-light text-echo-text">{peerCount}</div>
+					<div class="text-xl font-light text-echo-text">{displayedPeerCount}</div>
 					<div class="text-xs text-echo-muted">connected</div>
 				</div>
 				<div class="text-center">
@@ -771,7 +789,7 @@
 					</div>
 					<div class="text-center">
 						<div class="text-xs text-echo-dim mb-1">Peers</div>
-						<div class="text-xl font-light text-echo-text">{peerCount}</div>
+						<div class="text-xl font-light text-echo-text">{displayedPeerCount}</div>
 						<div class="text-xs text-echo-muted">connected</div>
 					</div>
 					<div class="text-center">
@@ -847,7 +865,7 @@
 				<div class="flex items-center gap-3">
 					<div class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
 					<p class="text-sm text-echo-muted font-mono">
-						Downloading headers... {formatNumber(headerCount)} / {formatNumber(networkHeight)} ({headerSyncProgress.toFixed(1)}%)
+						Downloading headers... {formatNumber(displayedHeaderCount)} / {formatNumber(networkHeight)} ({displayedHeaderProgress.toFixed(1)}%)
 					</p>
 				</div>
 			</div>
@@ -856,7 +874,7 @@
 				<div class="flex items-center gap-3">
 					<div class="w-2 h-2 rounded-full bg-echo-accent animate-pulse"></div>
 					<p class="text-sm text-echo-muted font-mono">
-						Validating block #{formatNumber(validatedHeight)}...
+						Validating block #{formatNumber(displayedValidated)}...
 					</p>
 				</div>
 			</div>
