@@ -334,9 +334,9 @@
 	const headerCount = $derived(chainInfo?.headers || 0);
 	const downloadedCount = $derived(validatedHeight + pendingValidation);
 	const blocksRemaining = $derived(Math.max(0, networkHeight - downloadedCount));
-	const downloadProgress = $derived(calcProgress(downloadedCount, networkHeight));
-	const validationProgress = $derived(calcProgress(validatedHeight, networkHeight)); // For session tracking
-	const progressBarWidth = $derived(`${downloadProgress}%`);
+	const downloadProgress = $derived(calcProgress(downloadedCount, networkHeight)); // Downloads (ahead of validation)
+	const validationProgress = $derived(calcProgress(validatedHeight, networkHeight)); // True sync progress
+	const progressBarWidth = $derived(`${validationProgress}%`); // Use validation for main progress bar
 	const sessionDuration = $derived(now - sessionStartTime);
 	const blocksThisSession = $derived(validatedHeight - sessionStartBlocks);
 	const estimatedDate = $derived(estimateBlockDate(validatedHeight));
@@ -601,7 +601,7 @@
 				{:else if isSynced()}
 					<Badge variant="success">Synced</Badge>
 				{:else}
-					<Badge variant="warning">Syncing {downloadProgress.toFixed(1)}%</Badge>
+					<Badge variant="warning">Syncing {validationProgress.toFixed(1)}%</Badge>
 				{/if}
 				<span class="text-xs text-echo-dim font-mono">{modeLabel}</span>
 			</div>
@@ -652,7 +652,7 @@
 					<span class="timeline-marker right-0 text-echo-text" style="left: 100%">Now</span>
 
 					<!-- Current position marker -->
-					{#if downloadProgress > 0 && downloadProgress < 100}
+					{#if validationProgress > 0 && validationProgress < 100}
 						<span
 							class="timeline-marker text-echo-accent font-bold"
 							style="left: {progressBarWidth}"
@@ -689,7 +689,7 @@
 							Calculating...
 						{/if}
 					</div>
-					<div class="text-xs text-echo-muted">{downloadProgress.toFixed(1)}% complete</div>
+					<div class="text-xs text-echo-muted">{validationProgress.toFixed(1)}% complete</div>
 				</div>
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Peers</div>
