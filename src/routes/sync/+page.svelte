@@ -826,6 +826,14 @@
 
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 				<div class="space-y-3">
+					<div class="flex justify-between">
+						<span class="text-echo-muted">Network Height</span>
+						<span class="font-mono text-echo-text">{formatNumber(displayedHeaderCount)}</span>
+					</div>
+					<div class="flex justify-between">
+						<span class="text-echo-muted">Best Block Difficulty</span>
+						<span class="font-mono text-echo-text">{formatDifficulty(chainInfo?.difficulty || 0)}</span>
+					</div>
 					<div class="flex justify-between items-center gap-4">
 						<span class="text-echo-muted flex-shrink-0">Best Block</span>
 						<Hash
@@ -834,14 +842,6 @@
 							copyable={true}
 							explorerUrl={chainInfo?.bestblockhash ? `https://mempool.space/block/${chainInfo.bestblockhash}` : undefined}
 						/>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Block Difficulty</span>
-						<span class="font-mono text-echo-text">{formatDifficulty(chainInfo?.difficulty || 0)}</span>
-					</div>
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Headers</span>
-						<span class="font-mono text-echo-text">{formatNumber(displayedHeaderCount)}</span>
 					</div>
 				</div>
 
