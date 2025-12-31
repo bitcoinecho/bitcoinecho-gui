@@ -22,6 +22,7 @@
   let copied = $state(false);
 
   // Split hash into dimmed prefix (leading zeros) and bright suffix (significant bytes)
+  // For block hashes with many leading zeros, collapse them to save space and show more unique suffix
   function getHashParts(hash: string, len: number): { prefix: string; suffix: string } {
     if (!truncate || hash.length <= len * 2 + 3) {
       // Find where leading zeros end
@@ -30,12 +31,23 @@
       return { prefix: hash.slice(0, firstNonZero), suffix: hash.slice(firstNonZero) };
     }
 
-    // For truncated display: show start...end
+    // Find where leading zeros end
+    const firstNonZero = hash.search(/[^0]/);
+
+    // If many leading zeros (like block hashes), collapse them and show more suffix
+    if (firstNonZero > 6) {
+      // Show "0000..." (4 zeros) then more of the unique suffix
+      const suffixLen = len + 4; // Show extra chars in suffix since we're saving space on prefix
+      return {
+        prefix: '0000...',
+        suffix: hash.slice(-suffixLen)
+      };
+    }
+
+    // Standard truncation for hashes without many leading zeros
     const start = hash.slice(0, len);
     const end = hash.slice(-len);
 
-    // Find first non-zero in start portion
-    const firstNonZero = start.search(/[^0]/);
     if (firstNonZero === -1) {
       return { prefix: start + '...', suffix: end };
     }

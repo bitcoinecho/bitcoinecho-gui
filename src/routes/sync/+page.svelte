@@ -160,6 +160,17 @@
 	}
 
 	/**
+	 * Format difficulty to human readable (1.5K, 2.3M, 102.5T, etc.)
+	 */
+	function formatDifficulty(diff: number): string {
+		if (diff >= 1e12) return (diff / 1e12).toFixed(2) + ' T';
+		if (diff >= 1e9) return (diff / 1e9).toFixed(2) + ' B';
+		if (diff >= 1e6) return (diff / 1e6).toFixed(2) + ' M';
+		if (diff >= 1e3) return (diff / 1e3).toFixed(2) + ' K';
+		return diff.toFixed(2);
+	}
+
+	/**
 	 * Format duration for display
 	 */
 	function formatDuration(ms: number): string {
@@ -815,26 +826,22 @@
 
 			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 				<div class="space-y-3">
-					<div class="flex justify-between">
-						<span class="text-echo-muted">Best Block</span>
+					<div class="flex justify-between items-center gap-4">
+						<span class="text-echo-muted flex-shrink-0">Best Block</span>
 						<Hash
 							value={chainInfo?.bestblockhash || ''}
-							truncate={true}
-							truncateLength={12}
+							expand={true}
 							copyable={true}
+							explorerUrl={chainInfo?.bestblockhash ? `https://mempool.space/block/${chainInfo.bestblockhash}` : undefined}
 						/>
 					</div>
 					<div class="flex justify-between">
-						<span class="text-echo-muted">Chain Work</span>
-						<Hash
-							value={chainInfo?.chainwork || ''}
-							truncate={true}
-							truncateLength={12}
-						/>
+						<span class="text-echo-muted">Block Difficulty</span>
+						<span class="font-mono text-echo-text">{formatDifficulty(chainInfo?.difficulty || 0)}</span>
 					</div>
 					<div class="flex justify-between">
 						<span class="text-echo-muted">Headers</span>
-						<span class="font-mono text-echo-text">{formatNumber(chainInfo?.headers || 0)}</span>
+						<span class="font-mono text-echo-text">{formatNumber(displayedHeaderCount)}</span>
 					</div>
 				</div>
 
