@@ -20,7 +20,7 @@
 	import MilestoneNotification from '$lib/components/MilestoneNotification.svelte';
 	import WelcomeBack from '$lib/components/WelcomeBack.svelte';
 	import SyncComplete from '$lib/components/SyncComplete.svelte';
-	import type { BlockchainInfo, SyncStatus } from '$lib/rpc/types';
+	import type { BlockchainInfo, SyncStatus, SyncMode } from '$lib/rpc/types';
 	import type { Milestone } from '$lib/data/milestones';
 	import {
 		getMilestonesBetween,
@@ -50,11 +50,27 @@
 	let hasSessionStart = $state(false);
 	let sessionTrackerStarted = $state(false);
 
-	// Performance tracking - store previous values for tweening
-	let pendingValidation = $state(0);
-	let prevPendingValidation = $state(0);
-	let prevDownloadedCount = $state(0);
-	let prevValidatedHeight = $state(0);
+	// Decoupled IBD state - current values from RPC
+	let blocksDownloaded = $state(0);
+	let blocksValidated = $state(0);
+	let consecutiveTip = $state(0);
+	let downloadRateBps = $state(0);
+	let validationRateBps = $state(0);
+	let storageUsedBytes = $state(0);
+	let storagePruneTarget = $state(0);
+	let storageHeadroomLimit = $state(0);
+	let currentChunkStart = $state(0);
+	let currentChunkEnd = $state(0);
+	let isThrottled = $state(false);
+	let syncMode = $state<SyncMode>('DOWNLOADING');
+
+	// Tweening - previous values for smooth animation
+	let prevBlocksDownloaded = $state(0);
+	let prevBlocksValidated = $state(0);
+	let prevConsecutiveTip = $state(0);
+	let prevDownloadRateBps = $state(0);
+	let prevValidationRateBps = $state(0);
+	let prevStorageUsedBytes = $state(0);
 	let lastRpcUpdate = $state(Date.now());
 	let lastBlockHeight = $state(0);
 	let lastUpdateTime = $state(Date.now());
@@ -186,12 +202,56 @@
 	}
 
 	/**
-	 * Format ETA
+	 * Format ETA - use "--" for unknown instead of "Calculating..."
 	 */
 	function formatETA(blocksRemaining: number, blocksPerSec: number): string {
-		if (blocksPerSec <= 0) return 'Calculating...';
+		if (blocksPerSec <= 0) return '--';
 		const secondsRemaining = blocksRemaining / blocksPerSec;
 		return formatDuration(secondsRemaining * 1000);
+	}
+
+	/**
+	 * Get mode badge styling based on sync mode
+	 */
+	function getModeStyle(mode: SyncMode): { color: string; bgColor: string; pulse: boolean } {
+		switch (mode) {
+			case 'DOWNLOADING':
+				return { color: 'text-blue-400', bgColor: 'bg-blue-500/20', pulse: true };
+			case 'THROTTLED':
+				return { color: 'text-amber-400', bgColor: 'bg-amber-500/20', pulse: false };
+			case 'VALIDATING':
+				return { color: 'text-emerald-400', bgColor: 'bg-emerald-500/20', pulse: true };
+			case 'FLUSHING':
+				return { color: 'text-gray-400', bgColor: 'bg-gray-500/20', pulse: false };
+			case 'PRUNING':
+				return { color: 'text-gray-400', bgColor: 'bg-gray-500/20', pulse: false };
+			case 'DONE':
+				return { color: 'text-emerald-400', bgColor: 'bg-emerald-500/20', pulse: false };
+			default:
+				return { color: 'text-echo-muted', bgColor: 'bg-echo-surface', pulse: false };
+		}
+	}
+
+	/**
+	 * Get mode description for tooltip/display
+	 */
+	function getModeDescription(mode: SyncMode): string {
+		switch (mode) {
+			case 'DOWNLOADING':
+				return 'Gathering blocks from the network';
+			case 'THROTTLED':
+				return 'Waiting for validation to catch up';
+			case 'VALIDATING':
+				return 'Verifying every transaction';
+			case 'FLUSHING':
+				return 'Saving progress to disk';
+			case 'PRUNING':
+				return 'Freeing space for more blocks';
+			case 'DONE':
+				return 'Fully synced';
+			default:
+				return '';
+		}
 	}
 
 	/**
@@ -275,12 +335,26 @@
 			}
 
 			// Store previous values for tweening before updating
-			prevValidatedHeight = chainInfo?.blocks ?? 0;
-			prevDownloadedCount = prevValidatedHeight + pendingValidation;
-			prevPendingValidation = pendingValidation;
+			prevBlocksDownloaded = blocksDownloaded;
+			prevBlocksValidated = blocksValidated;
+			prevConsecutiveTip = consecutiveTip;
+			prevDownloadRateBps = downloadRateBps;
+			prevValidationRateBps = validationRateBps;
+			prevStorageUsedBytes = storageUsedBytes;
 
-			// pending_validation: gap between downloaded and validated
-			pendingValidation = status.pending_validation ?? 0;
+			// Update decoupled IBD state from RPC
+			blocksDownloaded = status.blocks_downloaded ?? 0;
+			blocksValidated = status.blocks_validated ?? 0;
+			consecutiveTip = status.consecutive_tip ?? 0;
+			downloadRateBps = status.download_rate_bps ?? 0;
+			validationRateBps = status.validation_rate_bps ?? 0;
+			storageUsedBytes = status.storage_used_bytes ?? 0;
+			storagePruneTarget = status.storage_prune_target ?? 0;
+			storageHeadroomLimit = status.storage_headroom_limit ?? 0;
+			currentChunkStart = status.current_chunk_start ?? 0;
+			currentChunkEnd = status.current_chunk_end ?? 0;
+			isThrottled = status.is_throttled ?? false;
+			syncMode = status.mode ?? 'DOWNLOADING';
 			lastRpcUpdate = Date.now();
 
 			// Store previous header values for tweening before updating
@@ -343,21 +417,31 @@
 	const networkHeight = $derived($blockHeight || 0);
 	const validatedHeight = $derived(chainInfo?.blocks || 0);
 	const headerCount = $derived(chainInfo?.headers || 0);
-	const downloadedCount = $derived(validatedHeight + pendingValidation);
-	const blocksRemaining = $derived(Math.max(0, networkHeight - downloadedCount));
-	const downloadProgress = $derived(calcProgress(downloadedCount, networkHeight)); // Downloads (ahead of validation)
-	const validationProgress = $derived(calcProgress(validatedHeight, networkHeight)); // True sync progress
+	const validationBuffer = $derived(Math.max(0, blocksDownloaded - blocksValidated)); // The gap is a feature!
+	const blocksRemaining = $derived(Math.max(0, networkHeight - blocksDownloaded));
+	const downloadProgress = $derived(calcProgress(blocksDownloaded, networkHeight)); // Downloads (ahead of validation)
+	const validationProgress = $derived(calcProgress(blocksValidated, networkHeight)); // True sync progress
 	const progressBarWidth = $derived(`${validationProgress}%`); // Use validation for main progress bar
 	const sessionDuration = $derived(now - sessionStartTime);
-	const blocksThisSession = $derived(validatedHeight - sessionStartBlocks);
-	const estimatedDate = $derived(estimateBlockDate(validatedHeight));
+	const blocksThisSession = $derived(blocksValidated - sessionStartBlocks);
+	const estimatedDate = $derived(estimateBlockDate(blocksValidated));
+	const isPrunedNode = $derived(storagePruneTarget > 0);
+	const storagePercentage = $derived(
+		storagePruneTarget > 0 ? (storageUsedBytes / storagePruneTarget) * 100 : 0
+	);
 
 	// Tweened display values (smooth animation between RPC updates)
-	const displayedDownloaded = $derived(tweenValue(prevDownloadedCount, downloadedCount));
-	const displayedValidated = $derived(tweenValue(prevValidatedHeight, validatedHeight));
-	const displayedPending = $derived(tweenValue(prevPendingValidation, pendingValidation));
+	const displayedDownloaded = $derived(tweenValue(prevBlocksDownloaded, blocksDownloaded));
+	const displayedValidated = $derived(tweenValue(prevBlocksValidated, blocksValidated));
+	const displayedConsecutiveTip = $derived(tweenValue(prevConsecutiveTip, consecutiveTip));
+	const displayedDownloadRate = $derived(tweenValue(prevDownloadRateBps, Math.round(downloadRateBps * 10)) / 10);
+	const displayedValidationRate = $derived(tweenValue(prevValidationRateBps, Math.round(validationRateBps * 10)) / 10);
+	const displayedStorageUsed = $derived(tweenValue(prevStorageUsedBytes, storageUsedBytes));
+	const displayedValidationBuffer = $derived(Math.max(0, displayedDownloaded - displayedValidated));
 
-	// Tweened blocks progress bar (uses displayedValidated for smooth animation)
+	// Tweened progress bars (smooth animation)
+	const displayedDownloadProgress = $derived(networkHeight > 0 ? (displayedDownloaded / networkHeight) * 100 : 0);
+	const displayedDownloadProgressBarWidth = $derived(`${Math.min(displayedDownloadProgress, 100)}%`);
 	const displayedBlocksProgress = $derived(networkHeight > 0 ? (displayedValidated / networkHeight) * 100 : 0);
 	const displayedBlocksProgressBarWidth = $derived(`${Math.min(displayedBlocksProgress, 100)}%`);
 
@@ -381,7 +465,7 @@
 	const displayedPeerCount = $derived(tweenValue(prevPeerCount, peerCount));
 
 	// Headers-first sync phase detection and progress
-	const isHeadersPhase = $derived(headerCount > 0 && validatedHeight === 0);
+	const isHeadersPhase = $derived(headerCount > 0 && blocksValidated === 0 && blocksDownloaded === 0);
 	const headerSyncProgress = $derived(networkHeight > 0 ? (headerCount / networkHeight) * 100 : 0);
 	const headersRemaining = $derived(Math.max(0, networkHeight - headerCount));
 	const headerProgressBarWidth = $derived(`${Math.min(headerSyncProgress, 100)}%`);
@@ -389,12 +473,14 @@
 	// If we have 0 validated blocks but network has blocks, we're clearly not synced
 	const isSynced = $derived(() => {
 		if (!chainInfo) return false;
+		// If sync mode says DONE, we're synced
+		if (syncMode === 'DONE') return true;
 		// If node says we're in IBD, trust that
 		if (chainInfo.initialblockdownload) return false;
 		// If we have no validated blocks but network has blocks, we're not synced
-		if (validatedHeight === 0 && networkHeight > 0) return false;
-		// If we're more than 10 blocks behind, we're not synced
-		if (blocksRemaining > 10) return false;
+		if (blocksValidated === 0 && networkHeight > 0) return false;
+		// If we're more than 10 blocks behind on validation, we're not synced
+		if (networkHeight - blocksValidated > 10) return false;
 		// Otherwise trust the node
 		return true;
 	});
@@ -633,63 +719,112 @@
 			<span class="ml-3 text-echo-muted">Connecting to node...</span>
 		</div>
 	{:else}
-		<!-- Timeline Progress Bar (hidden during headers phase - no blocks validated yet) -->
+		<!-- Dual Progress Bars (hidden during headers phase - no blocks yet) -->
 		{#if !isHeadersPhase}
+		{@const modeStyle = getModeStyle(syncMode)}
 		<Card>
-			<!-- Progress bar section -->
-			<div class="mb-6">
-				<div class="flex justify-between items-baseline mb-2">
-					<span class="text-sm text-echo-muted">Timeline: 2009 to Present</span>
-					<span class="text-sm font-mono text-echo-text">
-						{formatNumber(displayedValidated)} / {formatNumber(networkHeight)} blocks
-					</span>
+			<!-- Mode badge and header -->
+			<div class="flex items-center justify-between mb-4">
+				<div class="flex items-center gap-3">
+					<div class="flex items-center gap-2 px-3 py-1.5 rounded-full {modeStyle.bgColor}">
+						<div class="w-2 h-2 rounded-full {modeStyle.color.replace('text-', 'bg-')} {modeStyle.pulse ? 'animate-pulse' : ''}"></div>
+						<span class="text-sm font-medium {modeStyle.color}">{syncMode}</span>
+					</div>
+					<span class="text-xs text-echo-dim">{getModeDescription(syncMode)}</span>
 				</div>
+				{#if isThrottled}
+					<span class="text-xs text-amber-400 font-mono">Downloads paused</span>
+				{/if}
+			</div>
 
-				<!-- Progress bar container -->
-				<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
-					<!-- Validated progress (tweened for smooth animation) -->
-					<div
-						class="absolute left-0 top-0 h-full bg-gradient-to-r from-echo-accent to-emerald-500 rounded-full"
-						style="width: {displayedBlocksProgressBarWidth}"
-					></div>
-				</div>
-
-				<!-- Timeline markers -->
-				<div class="relative h-8 mt-1">
-					<span class="timeline-marker left-0 text-echo-dim">2009</span>
-					<span class="timeline-marker text-echo-dim" style="left: 25%">2013</span>
-					<span class="timeline-marker text-echo-dim" style="left: 50%">2017</span>
-					<span class="timeline-marker text-echo-dim" style="left: 75%">2021</span>
-					<span class="timeline-marker right-0 text-echo-text" style="left: 100%">Now</span>
-
-					<!-- Current position marker -->
-					{#if validationProgress > 0 && validationProgress < 100}
-						<span
-							class="timeline-marker text-echo-accent font-bold"
-							style="left: {progressBarWidth}"
-						>
-							You
+			<!-- Dual progress bars section -->
+			<div class="space-y-4 mb-6">
+				<!-- Downloaded progress (blue) -->
+				<div>
+					<div class="flex justify-between items-baseline mb-1.5">
+						<span class="text-sm text-blue-400 font-medium">Downloaded</span>
+						<span class="text-sm font-mono text-echo-text">
+							{formatNumber(displayedDownloaded)} / {formatNumber(networkHeight)} <span class="text-echo-dim">({displayedDownloadProgress.toFixed(1)}%)</span>
 						</span>
-					{/if}
+					</div>
+					<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
+						<div
+							class="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-300"
+							style="width: {displayedDownloadProgressBarWidth}"
+						></div>
+					</div>
+				</div>
+
+				<!-- Validated progress (green) -->
+				<div>
+					<div class="flex justify-between items-baseline mb-1.5">
+						<span class="text-sm text-emerald-400 font-medium">Validated</span>
+						<span class="text-sm font-mono text-echo-text">
+							{formatNumber(displayedValidated)} / {formatNumber(networkHeight)} <span class="text-echo-dim">({displayedBlocksProgress.toFixed(1)}%)</span>
+						</span>
+					</div>
+					<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
+						<div
+							class="absolute left-0 top-0 h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-all duration-300"
+							style="width: {displayedBlocksProgressBarWidth}"
+						></div>
+					</div>
 				</div>
 			</div>
 
-			<!-- Stats grid - all key metrics in one place (tweened for smooth animation) -->
-			<div class="grid grid-cols-3 md:grid-cols-6 gap-4 pt-4 border-t border-echo-border">
+			<!-- Timeline markers -->
+			<div class="relative h-8 mb-4">
+				<span class="timeline-marker left-0 text-echo-dim">2009</span>
+				<span class="timeline-marker text-echo-dim" style="left: 25%">2013</span>
+				<span class="timeline-marker text-echo-dim" style="left: 50%">2017</span>
+				<span class="timeline-marker text-echo-dim" style="left: 75%">2021</span>
+				<span class="timeline-marker right-0 text-echo-text" style="left: 100%">Now</span>
+
+				<!-- Current position marker (validation position) -->
+				{#if validationProgress > 0 && validationProgress < 100}
+					<span
+						class="timeline-marker text-emerald-400 font-bold"
+						style="left: {progressBarWidth}"
+					>
+						You
+					</span>
+				{/if}
+			</div>
+
+			<!-- Stats grid - row 1: block counts and rates -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-echo-border">
 				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Downloaded</div>
+					<div class="text-xs text-blue-400 mb-1">Downloaded</div>
 					<div class="text-xl font-light text-echo-text">{formatNumber(displayedDownloaded)}</div>
 					<div class="text-xs text-echo-muted">{formatNumber(blocksRemaining)} to go</div>
 				</div>
 				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Validated</div>
+					<div class="text-xs text-emerald-400 mb-1">Validated</div>
 					<div class="text-xl font-light text-echo-text">{formatNumber(displayedValidated)}</div>
 					<div class="text-xs text-echo-muted">{formatDate(estimatedDate)}</div>
 				</div>
 				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Pending</div>
-					<div class="text-xl font-light text-echo-text">{formatNumber(displayedPending)}</div>
-					<div class="text-xs text-echo-muted">awaiting validation</div>
+					<div class="text-xs text-blue-400 mb-1">Download Rate</div>
+					<div class="text-xl font-light text-blue-400">
+						{displayedDownloadRate > 0 ? displayedDownloadRate.toFixed(1) : '--'}
+					</div>
+					<div class="text-xs text-echo-muted">blk/s</div>
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-emerald-400 mb-1">Validation Rate</div>
+					<div class="text-xl font-light text-emerald-400">
+						{displayedValidationRate > 0 ? displayedValidationRate.toFixed(1) : '--'}
+					</div>
+					<div class="text-xs text-echo-muted">{syncMode === 'VALIDATING' ? 'blk/s' : 'idle'}</div>
+				</div>
+			</div>
+
+			<!-- Stats grid - row 2: buffer, ETA, peers, storage -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 mt-4 border-t border-echo-border">
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Validation Buffer</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(displayedValidationBuffer)}</div>
+					<div class="text-xs text-echo-muted">blocks ready</div>
 				</div>
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">ETA</div>
@@ -697,7 +832,7 @@
 						{#if displayedBlockEta > 0}
 							{formatDuration(displayedBlockEta * 1000)}
 						{:else}
-							Calculating...
+							--
 						{/if}
 					</div>
 					<div class="text-xs text-echo-muted">{validationProgress.toFixed(1)}% complete</div>
@@ -705,12 +840,32 @@
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Peers</div>
 					<div class="text-xl font-light text-echo-text">{displayedPeerCount}</div>
-					<div class="text-xs text-echo-muted">connected</div>
+					<div class="text-xs text-echo-muted">{syncStatus?.active_sync_peers ?? 0} syncing</div>
 				</div>
 				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Uptime</div>
-					<div class="text-xl font-light text-echo-text">{formatDuration(displayedUptime * 1000)}</div>
-					<div class="text-xs text-echo-muted">node running</div>
+					<div class="text-xs text-echo-dim mb-1">Disk Usage</div>
+					{#if isPrunedNode}
+						<div class="text-xl font-light text-echo-text">{formatBytes(displayedStorageUsed)}</div>
+						<div class="text-xs text-echo-muted">/ {formatBytes(storagePruneTarget)}</div>
+						<!-- Mini storage bar -->
+						<div class="mt-1 h-1 bg-echo-surface rounded-full overflow-hidden">
+							<div
+								class="h-full rounded-full transition-all duration-300 {storagePercentage > 90 ? 'bg-amber-500' : 'bg-echo-accent'}"
+								style="width: {Math.min(storagePercentage, 100)}%"
+							></div>
+						</div>
+					{:else}
+						<div class="text-xl font-light text-echo-text">{formatBytes(displayedStorageUsed)}</div>
+						<div class="text-xs text-echo-muted">archival</div>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Uptime row -->
+			<div class="flex justify-center pt-4 mt-4 border-t border-echo-border">
+				<div class="text-center">
+					<span class="text-xs text-echo-dim">Node uptime:</span>
+					<span class="text-sm font-mono text-echo-text ml-2">{formatDuration(displayedUptime * 1000)}</span>
 				</div>
 			</div>
 		</Card>
@@ -766,7 +921,7 @@
 						<div>
 							<div class="text-xs text-echo-dim mb-1">ETA</div>
 							<div class="font-mono text-echo-text">
-								{displayedHeaderEta > 0 ? formatDuration(displayedHeaderEta * 1000) : 'Calculating...'}
+								{displayedHeaderEta > 0 ? formatDuration(displayedHeaderEta * 1000) : '--'}
 							</div>
 						</div>
 					</div>
@@ -866,7 +1021,7 @@
 			</div>
 		</Card>
 
-		<!-- Currently Validating Indicator -->
+		<!-- Current Activity Indicator -->
 		{#if isHeadersPhase}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
@@ -876,21 +1031,66 @@
 					</p>
 				</div>
 			</div>
-		{:else if !isSynced()}
+		{:else if syncMode === 'DONE' || isSynced()}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
-					<div class="w-2 h-2 rounded-full bg-echo-accent animate-pulse"></div>
+					<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+					<p class="text-sm text-echo-text font-mono">
+						Fully synced - validating new blocks as they arrive
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'DOWNLOADING'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
 					<p class="text-sm text-echo-muted font-mono">
-						Validating block #{formatNumber(displayedValidated)}...
+						Downloading blocks... {formatNumber(displayedDownloaded)} received, {formatNumber(blocksRemaining)} to go
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'VALIDATING'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Validating blocks {formatNumber(currentChunkStart)} - {formatNumber(currentChunkEnd)}...
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'THROTTLED'}
+			<div class="bg-echo-surface border border-amber-500/50 rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-amber-500"></div>
+					<p class="text-sm text-amber-400 font-mono">
+						Downloads paused - waiting for validation to free disk space
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'PRUNING'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-gray-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Pruning old blocks to free disk space...
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'FLUSHING'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-gray-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Flushing UTXO changes to disk...
 					</p>
 				</div>
 			</div>
 		{:else}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
-					<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
-					<p class="text-sm text-echo-text font-mono">
-						Fully synced - validating new blocks as they arrive
+					<div class="w-2 h-2 rounded-full bg-echo-accent animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Syncing... {formatNumber(displayedValidated)} blocks validated
 					</p>
 				</div>
 			</div>

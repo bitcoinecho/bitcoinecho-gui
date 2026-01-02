@@ -122,6 +122,19 @@ export interface BlockchainInfo {
 }
 
 /**
+ * Sync mode states for decoupled IBD architecture
+ *
+ * The node operates in distinct modes during sync:
+ * - DOWNLOADING: Actively fetching blocks from peers (any order)
+ * - THROTTLED: Downloads paused, waiting for validation to catch up (storage pressure)
+ * - VALIDATING: Processing a consecutive chunk of blocks
+ * - FLUSHING: Writing UTXO changes to disk
+ * - PRUNING: Removing old block data to free space
+ * - DONE: Fully synced, processing new blocks as they arrive
+ */
+export type SyncMode = 'DOWNLOADING' | 'THROTTLED' | 'VALIDATING' | 'FLUSHING' | 'PRUNING' | 'DONE';
+
+/**
  * Sync status response
  *
  * Returned by: getsyncstatus
@@ -129,26 +142,32 @@ export interface BlockchainInfo {
  * Provides the "source of truth" sync metrics calculated by the node.
  * The GUI should display these values instead of calculating them client-side.
  *
- * KEY INSIGHT: download_rate and validation_rate are DIFFERENT:
- * - download_rate: blocks arriving from network (any order, parallel)
- * - validation_rate: blocks added to chain (strict order, sequential)
- * When validation_rate << download_rate, we have head-of-line waiting
- * (not a bug - validation naturally catches up when missing blocks arrive).
+ * DECOUPLED IBD ARCHITECTURE:
+ * Downloads and validation run independently:
+ * - Downloads: Blocks arrive from peers in any order, stored to disk immediately
+ * - Validation: Runs on consecutive ranges when storage pressure triggers (pruned)
+ *   or all blocks arrive (archival)
+ * - Throttling: Downloads pause only when storage reaches 2x prune target
+ *
+ * The gap between blocks_downloaded and blocks_validated is the "validation buffer"
+ * - this is a FEATURE, not a backlog. It represents blocks ready for validation.
  */
 export interface SyncStatus {
-	mode: string; // Sync mode: "IDLE", "HEADERS", "BLOCKS", "DONE", "STALLED"
-	blocks_validated: number; // Session counter: blocks validated this session
+	mode: SyncMode; // Current sync state
+	blocks_validated: number; // Blocks with UTXO changes applied (strict order)
+	blocks_downloaded: number; // Blocks received from network (any order)
+	consecutive_tip: number; // Highest consecutive block on disk (validation can proceed to here)
 	best_header_height: number; // Height of best known header
-	tip_height: number; // Current validated blockchain height
-	blocks_pending: number; // Blocks queued but not yet downloaded
-	blocks_in_flight: number; // Blocks currently being downloaded
+	download_rate_bps: number; // Blocks downloaded per second
+	validation_rate_bps: number; // Blocks validated per second (0 when idle)
+	storage_used_bytes: number; // Current disk usage
+	storage_prune_target: number; // Prune target in bytes (0 if archival)
+	storage_headroom_limit: number; // Throttle threshold (2x prune target)
+	current_chunk_start: number; // Start of current validation chunk (0 if not validating)
+	current_chunk_end: number; // End of current validation chunk (0 if not validating)
+	is_throttled: boolean; // Downloads paused due to storage pressure
 	sync_percentage: number; // Completion percentage (0.0 - 100.0)
-	blocks_per_second: number; // Legacy: same as validation_rate
-	download_rate: number; // Blocks downloaded per second (any order)
-	validation_rate: number; // Blocks validated per second (strict order)
-	pending_validation: number; // Downloaded but not yet validated (gap)
 	eta_seconds: number; // Estimated time remaining in seconds
-	network_median_latency_ms: number; // Network baseline latency for diagnostics
 	active_sync_peers: number; // Peers actively contributing blocks
 	total_peers: number; // Total connected peers
 	initialblockdownload: boolean; // True if in IBD
