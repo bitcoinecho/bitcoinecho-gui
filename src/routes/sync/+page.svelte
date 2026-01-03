@@ -434,8 +434,8 @@
 	const displayedDownloaded = $derived(tweenValue(prevBlocksDownloaded, blocksDownloaded));
 	const displayedValidated = $derived(tweenValue(prevBlocksValidated, blocksValidated));
 	const displayedConsecutiveTip = $derived(tweenValue(prevConsecutiveTip, consecutiveTip));
-	const displayedDownloadRate = $derived(tweenValue(prevDownloadRateBps, Math.round(downloadRateBps * 10)) / 10);
-	const displayedValidationRate = $derived(tweenValue(prevValidationRateBps, Math.round(validationRateBps * 10)) / 10);
+	const displayedDownloadRate = $derived(tweenValue(Math.round(prevDownloadRateBps * 10), Math.round(downloadRateBps * 10)) / 10);
+	const displayedValidationRate = $derived(tweenValue(Math.round(prevValidationRateBps * 10), Math.round(validationRateBps * 10)) / 10);
 	const displayedStorageUsed = $derived(tweenValue(prevStorageUsedBytes, storageUsedBytes));
 	const displayedValidationBuffer = $derived(Math.max(0, displayedDownloaded - displayedValidated));
 
