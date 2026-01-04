@@ -59,6 +59,11 @@
 	let storageUsedBytes = $state(0);
 	let storagePruneTarget = $state(0);
 
+	// DRAIN phase state
+	let drainTarget = $state(0);
+	let drainRemaining = $state(0);
+	let prevDrainRemaining = $state(0);
+
 	// Tweening - previous values for smooth animation
 	let prevBlocksDownloaded = $state(0);
 	let prevBlocksValidated = $state(0);
@@ -286,6 +291,12 @@
 			validationRateBps = status.validation_rate_bps ?? 0;
 			storageUsedBytes = status.storage_used_bytes ?? info.size_on_disk ?? 0;
 			storagePruneTarget = status.storage_prune_target ?? 0;
+
+			// DRAIN phase progress
+			prevDrainRemaining = drainRemaining;
+			drainTarget = status.drain_target ?? 0;
+			drainRemaining = status.drain_remaining ?? 0;
+
 			lastRpcUpdate = Date.now();
 
 			// Header sync tracking
@@ -375,6 +386,15 @@
 	const displayedDownloadProgressBarWidth = $derived(`${Math.min(displayedDownloadProgress, 100)}%`);
 	const displayedValidationProgress = $derived(networkHeight > 0 ? (displayedValidated / networkHeight) * 100 : 0);
 	const displayedValidationProgressBarWidth = $derived(`${Math.min(displayedValidationProgress, 100)}%`);
+
+	// DRAIN progress bar - shows remaining blocks shrinking from right to left
+	// Total blocks to drain = drain_target - validated_tip
+	const drainTotal = $derived(drainTarget > blocksValidated ? drainTarget - blocksValidated : 0);
+	const displayedDrainRemaining = $derived(tweenValue(prevDrainRemaining, drainRemaining));
+	// Percentage of drain remaining (100% = all blocks needed, 0% = drain complete)
+	const drainRemainingPercent = $derived(drainTotal > 0 ? (displayedDrainRemaining / drainTotal) * 100 : 0);
+	const drainProgressBarWidth = $derived(`${Math.min(drainRemainingPercent, 100)}%`);
+	const isDraining = $derived(syncMode === 'DRAIN' && drainTotal > 0);
 
 	// Header sync tweened display values
 	const displayedHeaderCount = $derived(tweenValue(prevHeaderCount, headerCount));
@@ -661,6 +681,29 @@
 						></div>
 					</div>
 				</div>
+
+				<!-- DRAIN progress (amber bar, fills from right, shrinks as blocks arrive) -->
+				{#if isDraining}
+				<div>
+					<div class="flex justify-between items-baseline mb-1.5">
+						<span class="text-sm font-medium text-amber-400">
+							Draining
+						</span>
+						<span class="text-sm font-mono text-echo-text">
+							{formatNumber(Math.round(displayedDrainRemaining))} remaining
+							<span class="text-echo-dim">of {formatNumber(drainTotal)}</span>
+						</span>
+					</div>
+					<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
+						<!-- Bar fills from RIGHT side and shrinks toward left as blocks arrive -->
+						<div
+							class="absolute right-0 top-0 h-full rounded-full transition-all duration-300
+								bg-gradient-to-l from-amber-600 via-amber-400 to-amber-600 bar-active"
+							style="width: {drainProgressBarWidth}"
+						></div>
+					</div>
+				</div>
+				{/if}
 			</div>
 
 			<!-- Timeline markers -->

@@ -168,6 +168,8 @@ export interface SyncStatus {
 	blocks_downloaded: number; // Total blocks received from peers
 	blocks_pending: number; // Blocks queued but not yet downloaded
 	blocks_in_flight: number; // Blocks currently being downloaded
+	drain_target: number; // Target height for DRAIN phase (0 if not draining)
+	drain_remaining: number; // Blocks remaining in DRAIN (inflight + pending + gaps)
 	sync_percentage: number; // Completion percentage (0.0 - 100.0)
 	download_rate_bps: number; // Blocks downloaded per second (THIS phase)
 	validation_rate_bps: number; // Blocks validated per second (THIS phase)
