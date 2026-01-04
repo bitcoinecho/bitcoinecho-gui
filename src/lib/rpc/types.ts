@@ -122,6 +122,31 @@ export interface BlockchainInfo {
 }
 
 /**
+ * Sync mode for batch IBD architecture
+ *
+ * Sequential phases - each completes before the next begins:
+ *   HEADERS → DOWNLOAD → DRAIN → VALIDATE → FLUSH → PRUNE → loop (pruned)
+ *   HEADERS → DOWNLOAD → DRAIN → VALIDATE → FLUSH → DONE (archival)
+ *
+ * HEADERS: Download and validate header chain (existing, unchanged)
+ * DOWNLOAD: Fill disk with blocks up to prune target
+ * DRAIN: Wait for in-flight requests to complete
+ * VALIDATE: Validate consecutive block range, update UTXO set
+ * FLUSH: Persist UTXO changes atomically to database
+ * PRUNE: Delete old block files (pruned nodes only)
+ * DONE: IBD complete, normal operation
+ */
+export type SyncMode =
+	| 'IDLE'
+	| 'HEADERS'
+	| 'DOWNLOAD'
+	| 'DRAIN'
+	| 'VALIDATE'
+	| 'FLUSH'
+	| 'PRUNE'
+	| 'DONE';
+
+/**
  * Sync status response
  *
  * Returned by: getsyncstatus
@@ -129,26 +154,26 @@ export interface BlockchainInfo {
  * Provides the "source of truth" sync metrics calculated by the node.
  * The GUI should display these values instead of calculating them client-side.
  *
- * KEY INSIGHT: download_rate and validation_rate are DIFFERENT:
- * - download_rate: blocks arriving from network (any order, parallel)
- * - validation_rate: blocks added to chain (strict order, sequential)
- * When validation_rate << download_rate, we have head-of-line waiting
- * (not a bug - validation naturally catches up when missing blocks arrive).
+ * BATCH IBD ARCHITECTURE:
+ * Phases are sequential, not parallel. Rate metrics are per-phase:
+ * - download_rate_bps: blocks/sec during current DOWNLOAD phase only
+ * - validation_rate_bps: blocks/sec during current VALIDATE phase only
+ * Rates reset when phases restart (after PRUNE for pruned nodes).
  */
 export interface SyncStatus {
-	mode: string; // Sync mode: "IDLE", "HEADERS", "BLOCKS", "DONE", "STALLED"
-	blocks_validated: number; // Session counter: blocks validated this session
+	mode: SyncMode; // Current sync phase
+	blocks_validated: number; // Total blocks validated (chainstate height)
 	best_header_height: number; // Height of best known header
 	tip_height: number; // Current validated blockchain height
+	blocks_downloaded: number; // Total blocks received from peers
 	blocks_pending: number; // Blocks queued but not yet downloaded
 	blocks_in_flight: number; // Blocks currently being downloaded
 	sync_percentage: number; // Completion percentage (0.0 - 100.0)
-	blocks_per_second: number; // Legacy: same as validation_rate
-	download_rate: number; // Blocks downloaded per second (any order)
-	validation_rate: number; // Blocks validated per second (strict order)
-	pending_validation: number; // Downloaded but not yet validated (gap)
+	download_rate_bps: number; // Blocks downloaded per second (THIS phase)
+	validation_rate_bps: number; // Blocks validated per second (THIS phase)
 	eta_seconds: number; // Estimated time remaining in seconds
-	network_median_latency_ms: number; // Network baseline latency for diagnostics
+	storage_used_bytes: number; // Current block storage size
+	storage_prune_target: number; // Target storage size (0 = archival)
 	active_sync_peers: number; // Peers actively contributing blocks
 	total_peers: number; // Total connected peers
 	initialblockdownload: boolean; // True if in IBD

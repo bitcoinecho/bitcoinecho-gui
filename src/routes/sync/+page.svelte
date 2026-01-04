@@ -20,7 +20,7 @@
 	import MilestoneNotification from '$lib/components/MilestoneNotification.svelte';
 	import WelcomeBack from '$lib/components/WelcomeBack.svelte';
 	import SyncComplete from '$lib/components/SyncComplete.svelte';
-	import type { BlockchainInfo, SyncStatus } from '$lib/rpc/types';
+	import type { BlockchainInfo, SyncStatus, SyncMode } from '$lib/rpc/types';
 	import type { Milestone } from '$lib/data/milestones';
 	import {
 		getMilestonesBetween,
@@ -41,8 +41,8 @@
 	let syncStatus = $state<SyncStatus | null>(null);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
-	let consecutiveErrors = $state(0); // Track errors for resilience
-	const ERROR_THRESHOLD = 3; // Show error UI after 3 consecutive failures
+	let consecutiveErrors = $state(0);
+	const ERROR_THRESHOLD = 3;
 
 	// Session tracking
 	let sessionStartTime = $state(Date.now());
@@ -50,27 +50,33 @@
 	let hasSessionStart = $state(false);
 	let sessionTrackerStarted = $state(false);
 
-	// Performance tracking - store previous values for tweening
-	let pendingValidation = $state(0);
-	let prevPendingValidation = $state(0);
-	let prevDownloadedCount = $state(0);
-	let prevValidatedHeight = $state(0);
+	// Batch IBD state - current values from RPC
+	let syncMode = $state<SyncMode>('IDLE');
+	let blocksDownloaded = $state(0);
+	let blocksValidated = $state(0);
+	let downloadRateBps = $state(0);
+	let validationRateBps = $state(0);
+	let storageUsedBytes = $state(0);
+	let storagePruneTarget = $state(0);
+
+	// Tweening - previous values for smooth animation
+	let prevBlocksDownloaded = $state(0);
+	let prevBlocksValidated = $state(0);
+	let prevDownloadRateBps = $state(0);
+	let prevValidationRateBps = $state(0);
+	let prevStorageUsedBytes = $state(0);
 	let lastRpcUpdate = $state(Date.now());
-	let lastBlockHeight = $state(0);
-	let lastUpdateTime = $state(Date.now());
 
 	// Header sync tracking
 	let headersPerSecond = $state(0);
 	let lastHeaderCount = $state(0);
 	let lastHeaderUpdateTime = $state(Date.now());
-
-	// Header sync tweening (previous values for smooth animation)
 	let prevHeaderCount = $state(0);
 	let prevHeadersPerSecond = $state(0);
-	let headerEtaSeconds = $state(0); // Last calculated ETA from RPC
-	let lastHeaderEtaUpdate = $state(Date.now()); // When we calculated it
+	let headerEtaSeconds = $state(0);
+	let lastHeaderEtaUpdate = $state(Date.now());
 
-	// Block sync ETA tweening (simple tween, not countdown - ETA fluctuates too much)
+	// Block sync ETA tweening
 	let prevBlockEtaSeconds = $state(0);
 
 	// Peer count tweening
@@ -78,17 +84,17 @@
 
 	// Observer stats (from batch RPC)
 	let peerCount = $state(0);
-	let serverUptime = $state(0); // Last known uptime from node
-	let lastUptimeUpdate = $state(Date.now()); // When we received it
+	let serverUptime = $state(0);
+	let lastUptimeUpdate = $state(Date.now());
 	let nodeStartHeight = $state(0);
 
 	// Polling
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
 	let timeInterval: ReturnType<typeof setInterval> | null = null;
 	let now = $state(Date.now());
-	let isFetching = $state(false); // Prevent overlapping requests
+	let isFetching = $state(false);
 
-	// Smoothly interpolated uptime (increments locally between RPC polls)
+	// Smoothly interpolated uptime
 	const displayedUptime = $derived(
 		serverUptime + Math.floor((now - lastUptimeUpdate) / 1000)
 	);
@@ -97,7 +103,6 @@
 	function tweenValue(prev: number, current: number): number {
 		const elapsed = now - lastRpcUpdate;
 		const progress = Math.min(elapsed / POLL_INTERVAL, 1);
-		// Ease-out for smooth feel
 		const eased = 1 - Math.pow(1 - progress, 2);
 		return Math.round(prev + (current - prev) * eased);
 	}
@@ -107,33 +112,15 @@
 	let dismissedMilestones = $state<Set<number>>(new Set());
 	let lastMilestoneCheckHeight = $state(0);
 
-	/**
-	 * Poll interval (5s) - reduced from 1.618s to minimize RPC load during IBD
-	 */
 	const POLL_INTERVAL = 5000;
-
-	/**
-	 * Backoff interval when disconnected (10 seconds)
-	 */
 	const ERROR_BACKOFF_INTERVAL = 10000;
-
-	/**
-	 * Bitcoin genesis date (January 3, 2009)
-	 */
 	const GENESIS_DATE = new Date('2009-01-03T18:15:05Z');
 
-	/**
-	 * Estimate block date from height
-	 * Rough approximation: 10 minutes per block average
-	 */
 	function estimateBlockDate(height: number): Date {
-		const msPerBlock = 10 * 60 * 1000; // 10 minutes
+		const msPerBlock = 10 * 60 * 1000;
 		return new Date(GENESIS_DATE.getTime() + height * msPerBlock);
 	}
 
-	/**
-	 * Format date for display
-	 */
 	function formatDate(date: Date): string {
 		return date.toLocaleDateString(undefined, {
 			month: 'short',
@@ -141,16 +128,10 @@
 		});
 	}
 
-	/**
-	 * Format number with commas
-	 */
 	function formatNumber(n: number): string {
 		return n.toLocaleString();
 	}
 
-	/**
-	 * Format bytes to human readable
-	 */
 	function formatBytes(bytes: number): string {
 		if (bytes >= 1e12) return (bytes / 1e12).toFixed(2) + ' TB';
 		if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + ' GB';
@@ -159,9 +140,6 @@
 		return bytes + ' B';
 	}
 
-	/**
-	 * Format difficulty to human readable (1.5K, 2.3M, 102.5T, etc.)
-	 */
 	function formatDifficulty(diff: number): string {
 		if (diff >= 1e12) return (diff / 1e12).toFixed(2) + ' T';
 		if (diff >= 1e9) return (diff / 1e9).toFixed(2) + ' B';
@@ -170,9 +148,6 @@
 		return diff.toFixed(2);
 	}
 
-	/**
-	 * Format duration for display
-	 */
 	function formatDuration(ms: number): string {
 		const seconds = Math.floor(ms / 1000);
 		const minutes = Math.floor(seconds / 60);
@@ -185,42 +160,72 @@
 		return `${seconds}s`;
 	}
 
-	/**
-	 * Format ETA
-	 */
-	function formatETA(blocksRemaining: number, blocksPerSec: number): string {
-		if (blocksPerSec <= 0) return 'Calculating...';
-		const secondsRemaining = blocksRemaining / blocksPerSec;
-		return formatDuration(secondsRemaining * 1000);
+	function formatRate(rate: number): string {
+		if (rate <= 0) return '0';
+		if (rate >= 1000) return (rate / 1000).toFixed(1) + 'k';
+		return rate.toFixed(1);
 	}
 
 	/**
-	 * Calculate progress percentage
+	 * Get phase description for activity indicator
 	 */
-	function calcProgress(validated: number, network: number): number {
-		if (network <= 0) return 0;
-		return Math.min((validated / network) * 100, 100);
+	function getPhaseDescription(mode: SyncMode): string {
+		switch (mode) {
+			case 'DOWNLOAD': return 'Downloading blocks from peers';
+			case 'DRAIN': return 'Waiting for in-flight requests';
+			case 'VALIDATE': return 'Validating blocks and updating UTXO set';
+			case 'FLUSH': return 'Persisting changes to database';
+			case 'PRUNE': return 'Removing old block files';
+			case 'DONE': return 'Fully synced';
+			case 'HEADERS': return 'Downloading block headers';
+			default: return '';
+		}
 	}
 
 	/**
-	 * Check for milestones passed since last check
-	 * Shows notification for the most recently passed milestone
+	 * Get phase color for UI elements
 	 */
+	function getPhaseColor(mode: SyncMode): string {
+		switch (mode) {
+			case 'DOWNLOAD': return 'blue';
+			case 'DRAIN': return 'gray';
+			case 'VALIDATE': return 'emerald';
+			case 'FLUSH': return 'gray';
+			case 'PRUNE': return 'gray';
+			case 'DONE': return 'emerald';
+			case 'HEADERS': return 'amber';
+			default: return 'gray';
+		}
+	}
+
+	/**
+	 * Check if download progress bar should be active (tweening)
+	 */
+	function isDownloadActive(mode: SyncMode): boolean {
+		return mode === 'DOWNLOAD';
+	}
+
+	/**
+	 * Check if validation progress bar should be active (tweening)
+	 */
+	function isValidationActive(mode: SyncMode): boolean {
+		return mode === 'VALIDATE';
+	}
+
+	function calcProgress(value: number, total: number): number {
+		if (total <= 0) return 0;
+		return Math.min((value / total) * 100, 100);
+	}
+
 	function checkMilestones(currentHeight: number): void {
 		if (lastMilestoneCheckHeight === 0) {
-			// First check — just set the baseline, don't show notifications for past milestones
 			lastMilestoneCheckHeight = currentHeight;
 			return;
 		}
 
-		if (currentHeight <= lastMilestoneCheckHeight) {
-			return; // No progress
-		}
+		if (currentHeight <= lastMilestoneCheckHeight) return;
 
-		// Find milestones passed since last check
 		const passedMilestones = getMilestonesBetween(lastMilestoneCheckHeight + 1, currentHeight);
-
-		// Show the most recent milestone that hasn't been dismissed
 		for (let i = passedMilestones.length - 1; i >= 0; i--) {
 			const milestone = passedMilestones[i];
 			if (!dismissedMilestones.has(milestone.height)) {
@@ -232,9 +237,6 @@
 		lastMilestoneCheckHeight = currentHeight;
 	}
 
-	/**
-	 * Dismiss the current milestone notification
-	 */
 	function dismissMilestone(): void {
 		if (currentMilestoneNotification) {
 			dismissedMilestones = new Set([...dismissedMilestones, currentMilestoneNotification.height]);
@@ -242,12 +244,7 @@
 		}
 	}
 
-	/**
-	 * Fetch all sync data in one batch RPC call
-	 * Returns true if successful, false if error (for backoff logic)
-	 */
 	async function fetchChainInfo(): Promise<boolean> {
-		// Prevent overlapping requests
 		if (isFetching) return !error;
 		isFetching = true;
 
@@ -258,11 +255,11 @@
 				timeout: config.timeout
 			});
 
-			// Update observer stats (peer count, uptime, start height)
-			prevPeerCount = peerCount; // Store previous for tweening
+			// Update observer stats
+			prevPeerCount = peerCount;
 			peerCount = observerStats.peer_count;
 			serverUptime = observerStats.uptime_seconds;
-			lastUptimeUpdate = Date.now(); // Reset interpolation reference
+			lastUptimeUpdate = Date.now();
 			nodeStartHeight = observerStats.start_height;
 
 			// Track session start
@@ -270,24 +267,31 @@
 				sessionStartBlocks = info.blocks;
 				sessionStartTime = Date.now();
 				hasSessionStart = true;
-				lastBlockHeight = info.blocks;
-				lastUpdateTime = Date.now();
 			}
 
-			// Store previous values for tweening before updating
-			prevValidatedHeight = chainInfo?.blocks ?? 0;
-			prevDownloadedCount = prevValidatedHeight + pendingValidation;
-			prevPendingValidation = pendingValidation;
+			// Store previous values for tweening
+			prevBlocksDownloaded = blocksDownloaded;
+			prevBlocksValidated = blocksValidated;
+			prevDownloadRateBps = downloadRateBps;
+			prevValidationRateBps = validationRateBps;
+			prevStorageUsedBytes = storageUsedBytes;
 
-			// pending_validation: gap between downloaded and validated
-			pendingValidation = status.pending_validation ?? 0;
+			// Update batch IBD state from RPC
+			// Handle both old and new field names for compatibility
+			syncMode = (status.mode as SyncMode) ?? 'IDLE';
+			blocksValidated = status.blocks_validated ?? status.tip_height ?? info.blocks ?? 0;
+			// Use blocks_downloaded from RPC (total blocks received from peers)
+			blocksDownloaded = status.blocks_downloaded ?? blocksValidated;
+			downloadRateBps = status.download_rate_bps ?? 0;
+			validationRateBps = status.validation_rate_bps ?? 0;
+			storageUsedBytes = status.storage_used_bytes ?? info.size_on_disk ?? 0;
+			storagePruneTarget = status.storage_prune_target ?? 0;
 			lastRpcUpdate = Date.now();
 
-			// Store previous header values for tweening before updating
+			// Header sync tracking
 			prevHeaderCount = lastHeaderCount;
 			prevHeadersPerSecond = headersPerSecond;
 
-			// Calculate headers per second (for headers-first sync phase)
 			if (lastHeaderCount > 0 && info.headers > lastHeaderCount) {
 				const headersDelta = info.headers - lastHeaderCount;
 				const timeDelta = (Date.now() - lastHeaderUpdateTime) / 1000;
@@ -301,35 +305,27 @@
 			lastHeaderCount = info.headers;
 			lastHeaderUpdateTime = Date.now();
 
-			// Calculate header sync ETA for countdown display
 			const currentHeadersRemaining = ($blockHeight || 0) - info.headers;
 			if (headersPerSecond > 0 && currentHeadersRemaining > 0) {
 				headerEtaSeconds = Math.round(currentHeadersRemaining / headersPerSecond);
 				lastHeaderEtaUpdate = Date.now();
 			}
 
-			lastBlockHeight = info.blocks;
-			lastUpdateTime = Date.now();
-
-			// Store previous block ETA for simple tweening (not countdown - ETA fluctuates too much)
 			prevBlockEtaSeconds = syncStatus?.eta_seconds ?? 0;
 
 			chainInfo = info;
 			syncStatus = status;
 
 			error = null;
-			consecutiveErrors = 0; // Reset on success
+			consecutiveErrors = 0;
 			loading = false;
 			isFetching = false;
 
-			// Check for milestones passed
 			checkMilestones(info.blocks);
 
 			return true;
 		} catch (e) {
 			consecutiveErrors++;
-			// Only show error UI after ERROR_THRESHOLD consecutive failures
-			// This prevents brief network blips from disrupting the view
 			if (consecutiveErrors >= ERROR_THRESHOLD) {
 				error = e instanceof Error ? e.message : 'Unknown error';
 			}
@@ -343,67 +339,77 @@
 	const networkHeight = $derived($blockHeight || 0);
 	const validatedHeight = $derived(chainInfo?.blocks || 0);
 	const headerCount = $derived(chainInfo?.headers || 0);
-	const downloadedCount = $derived(validatedHeight + pendingValidation);
-	const blocksRemaining = $derived(Math.max(0, networkHeight - downloadedCount));
-	const downloadProgress = $derived(calcProgress(downloadedCount, networkHeight)); // Downloads (ahead of validation)
-	const validationProgress = $derived(calcProgress(validatedHeight, networkHeight)); // True sync progress
-	const progressBarWidth = $derived(`${validationProgress}%`); // Use validation for main progress bar
+	const blocksRemaining = $derived(Math.max(0, networkHeight - blocksValidated));
+	const validationProgress = $derived(calcProgress(blocksValidated, networkHeight));
+	const downloadProgress = $derived(calcProgress(blocksDownloaded, networkHeight));
+	const progressBarWidth = $derived(`${validationProgress}%`);
 	const sessionDuration = $derived(now - sessionStartTime);
-	const blocksThisSession = $derived(validatedHeight - sessionStartBlocks);
-	const estimatedDate = $derived(estimateBlockDate(validatedHeight));
+	const blocksThisSession = $derived(blocksValidated - sessionStartBlocks);
+	const estimatedDate = $derived(estimateBlockDate(blocksValidated));
+	const isPrunedNode = $derived(storagePruneTarget > 0);
+	const storagePercentage = $derived(
+		storagePruneTarget > 0 ? (storageUsedBytes / storagePruneTarget) * 100 : 0
+	);
 
-	// Tweened display values (smooth animation between RPC updates)
-	const displayedDownloaded = $derived(tweenValue(prevDownloadedCount, downloadedCount));
-	const displayedValidated = $derived(tweenValue(prevValidatedHeight, validatedHeight));
-	const displayedPending = $derived(tweenValue(prevPendingValidation, pendingValidation));
+	// Tweened display values
+	const displayedDownloaded = $derived(
+		isDownloadActive(syncMode) ? tweenValue(prevBlocksDownloaded, blocksDownloaded) : blocksDownloaded
+	);
+	const displayedValidated = $derived(
+		isValidationActive(syncMode) ? tweenValue(prevBlocksValidated, blocksValidated) : blocksValidated
+	);
+	const displayedDownloadRate = $derived(
+		isDownloadActive(syncMode)
+			? tweenValue(Math.round(prevDownloadRateBps * 10), Math.round(downloadRateBps * 10)) / 10
+			: downloadRateBps
+	);
+	const displayedValidationRate = $derived(
+		isValidationActive(syncMode)
+			? tweenValue(Math.round(prevValidationRateBps * 10), Math.round(validationRateBps * 10)) / 10
+			: validationRateBps
+	);
+	const displayedStorageUsed = $derived(tweenValue(prevStorageUsedBytes, storageUsedBytes));
 
-	// Tweened blocks progress bar (uses displayedValidated for smooth animation)
-	const displayedBlocksProgress = $derived(networkHeight > 0 ? (displayedValidated / networkHeight) * 100 : 0);
-	const displayedBlocksProgressBarWidth = $derived(`${Math.min(displayedBlocksProgress, 100)}%`);
+	// Progress bar widths
+	const displayedDownloadProgress = $derived(networkHeight > 0 ? (displayedDownloaded / networkHeight) * 100 : 0);
+	const displayedDownloadProgressBarWidth = $derived(`${Math.min(displayedDownloadProgress, 100)}%`);
+	const displayedValidationProgress = $derived(networkHeight > 0 ? (displayedValidated / networkHeight) * 100 : 0);
+	const displayedValidationProgressBarWidth = $derived(`${Math.min(displayedValidationProgress, 100)}%`);
 
 	// Header sync tweened display values
 	const displayedHeaderCount = $derived(tweenValue(prevHeaderCount, headerCount));
 	const displayedHeadersPerSecond = $derived(tweenValue(prevHeadersPerSecond, Math.round(headersPerSecond)));
 	const displayedHeadersRemaining = $derived(Math.max(0, networkHeight - displayedHeaderCount));
-	// Header ETA counts down between polls (opposite of uptime counting up)
 	const displayedHeaderEta = $derived(
 		Math.max(0, headerEtaSeconds - Math.floor((now - lastHeaderEtaUpdate) / 1000))
 	);
-	// Tweened header progress bar (uses displayedHeaderCount for smooth animation)
 	const displayedHeaderProgress = $derived(networkHeight > 0 ? (displayedHeaderCount / networkHeight) * 100 : 0);
 	const displayedHeaderProgressBarWidth = $derived(`${Math.min(displayedHeaderProgress, 100)}%`);
 
-	// Block ETA tweened value (simple tween, not countdown - ETA fluctuates too much)
+	// Block ETA tweened value
 	const currentBlockEta = $derived(syncStatus?.eta_seconds ?? 0);
 	const displayedBlockEta = $derived(tweenValue(prevBlockEtaSeconds, currentBlockEta));
 
 	// Peer count tweened value
 	const displayedPeerCount = $derived(tweenValue(prevPeerCount, peerCount));
 
-	// Headers-first sync phase detection and progress
-	const isHeadersPhase = $derived(headerCount > 0 && validatedHeight === 0);
-	const headerSyncProgress = $derived(networkHeight > 0 ? (headerCount / networkHeight) * 100 : 0);
-	const headersRemaining = $derived(Math.max(0, networkHeight - headerCount));
-	const headerProgressBarWidth = $derived(`${Math.min(headerSyncProgress, 100)}%`);
-	// Smarter sync detection: don't trust initialblockdownload alone
-	// If we have 0 validated blocks but network has blocks, we're clearly not synced
+	// Headers-first sync phase detection
+	const isHeadersPhase = $derived(syncMode === 'HEADERS' || (headerCount > 0 && blocksValidated === 0 && blocksDownloaded === 0));
+
+	// Sync detection
 	const isSynced = $derived(() => {
 		if (!chainInfo) return false;
-		// If node says we're in IBD, trust that
+		if (syncMode === 'DONE') return true;
 		if (chainInfo.initialblockdownload) return false;
-		// If we have no validated blocks but network has blocks, we're not synced
-		if (validatedHeight === 0 && networkHeight > 0) return false;
-		// If we're more than 10 blocks behind, we're not synced
-		if (blocksRemaining > 10) return false;
-		// Otherwise trust the node
+		if (blocksValidated === 0 && networkHeight > 0) return false;
+		if (networkHeight - blocksValidated > 10) return false;
 		return true;
 	});
 
-	// Track if sync just completed (transition from syncing to synced)
+	// Track sync completion
 	let wasNotSynced = $state(true);
 	let justCompletedSync = $state(false);
 
-	// Get last session date for resume screen
 	const lastSessionDate = $derived(() => {
 		const sessions = $allSessions;
 		if (sessions.length === 0) return null;
@@ -411,140 +417,97 @@
 		return lastSession.endTime ? new Date(lastSession.endTime) : null;
 	});
 
-	/**
-	 * Handle continue sync from resume screen
-	 */
 	function handleContinueSync(): void {
-		// Mark resume as shown for this browser session
 		if (typeof window !== 'undefined') {
 			sessionStorage.setItem(SESSION_KEY_RESUME_SHOWN, 'true');
 		}
 		viewState = 'syncing';
 	}
 
-	/**
-	 * Handle observe network instead
-	 */
 	function handleObserve(): void {
 		goto('/observer');
 	}
 
-	/**
-	 * Handle entering the dashboard after sync complete
-	 */
 	function handleEnterDashboard(): void {
-		// For now, stay on sync page but clear the completion view
-		// In the future, this could navigate to a dashboard view
 		viewState = 'syncing';
 	}
 
-	/**
-	 * Start session tracking
-	 */
 	function startSessionTracking(): void {
 		if (sessionTrackerStarted || !chainInfo) return;
 		sessionTrackerStarted = true;
 		sessionHistory.startSession(chainInfo.blocks, networkHeight);
 	}
 
-	/**
-	 * Check if we should show resume screen
-	 */
 	function shouldShowResume(): boolean {
 		if (typeof window === 'undefined') return false;
-
-		// Don't show if already dismissed this browser session
 		const alreadyShown = sessionStorage.getItem(SESSION_KEY_RESUME_SHOWN) === 'true';
 		if (alreadyShown) return false;
-
-		// Show if user has previous sessions
 		return $isResumeSession;
 	}
 
-	// Mode display (detected from node)
 	const modeLabel = $derived(MODE_LABELS[$detectedMode] || 'Syncing');
-
-	// Milestone tracking (derived)
 	const lastMilestone = $derived(getLastPassedMilestone(validatedHeight));
 	const nextMilestone = $derived(getNextMilestone(validatedHeight));
 
 	onMount(() => {
-		// Stop the global health check - this page handles its own polling
 		connection.stopAutoHealthCheck();
 
-		// Determine initial view state
 		if (shouldShowResume() && !$syncCompletion) {
 			viewState = 'resume';
 		} else {
 			viewState = 'syncing';
 		}
 
-		// Initial fetch (gets both blockchain info and observer stats in one batch)
 		fetchChainInfo();
-		// Also fetch external data (block height, hashrate)
 		connection.fetchExternalData();
 
-		// Smart polling with backoff on errors
 		let currentInterval = POLL_INTERVAL;
 
 		const poll = async () => {
-			// Single batch RPC call gets blockchain info + observer stats
 			const success = await fetchChainInfo();
-			// Use longer interval when disconnected to avoid flooding
 			currentInterval = success ? POLL_INTERVAL : ERROR_BACKOFF_INTERVAL;
 			pollInterval = setTimeout(poll, currentInterval);
 		};
 
-		// Start polling after initial delay
 		pollInterval = setTimeout(poll, POLL_INTERVAL);
 
-		// Fetch external data less frequently (every 30s)
 		const externalPoll = setInterval(() => {
 			connection.fetchExternalData();
 		}, 30000);
 
-		// Update time for durations and smooth animations (250ms for 20 tween steps per RPC poll)
 		timeInterval = setInterval(() => {
 			now = Date.now();
 		}, 250);
 
-		// Cleanup function needs to handle both interval types
 		return () => {
 			if (pollInterval) clearTimeout(pollInterval);
 			clearInterval(externalPoll);
 			if (timeInterval) clearInterval(timeInterval);
 
-			// End session when leaving page
 			if (sessionTrackerStarted && chainInfo) {
 				sessionHistory.endSession(chainInfo.blocks);
 			}
 
-			// Resume global health check when leaving sync page
 			connection.resumeAutoHealthCheck();
 			connection.connect();
 		};
 	});
 
-	// Effect: Track session progress and detect sync completion
 	$effect(() => {
 		if (!chainInfo || loading) return;
 
-		// Start session tracking when we have chain data and are in syncing view
 		if (viewState === 'syncing' && !isSynced()) {
 			startSessionTracking();
 		}
 
-		// Update progress periodically
 		if (sessionTrackerStarted && validatedHeight > 0) {
 			sessionHistory.updateProgress(validatedHeight, validationProgress);
 		}
 
-		// Detect sync completion (transition from not synced to synced)
 		if (wasNotSynced && isSynced() && validatedHeight > 0) {
 			wasNotSynced = false;
 			justCompletedSync = true;
 
-			// Only show completion celebration if not already completed
 			if (!$syncCompletion) {
 				sessionHistory.markComplete(validatedHeight);
 				viewState = 'complete';
@@ -552,8 +515,6 @@
 		}
 	});
 
-	// Note: Cleanup is handled by onMount return function
-	// onDestroy kept as backup for edge cases
 	onDestroy(() => {
 		if (pollInterval) {
 			clearTimeout(pollInterval);
@@ -564,7 +525,6 @@
 </script>
 
 <style>
-	/* Timeline markers */
 	.timeline-marker {
 		position: absolute;
 		bottom: -1.5rem;
@@ -573,11 +533,26 @@
 		white-space: nowrap;
 	}
 
-	/* Stat value stability */
 	.stat-value {
 		min-height: 2rem;
 		min-width: 3rem;
 		display: inline-block;
+	}
+
+	/* Active bar shimmer effect */
+	.bar-active {
+		background-size: 200% 100%;
+		animation: shimmer 2s linear infinite;
+	}
+
+	@keyframes shimmer {
+		0% { background-position: 200% 0; }
+		100% { background-position: -200% 0; }
+	}
+
+	/* Static bar desaturation */
+	.bar-static {
+		filter: saturate(0.5) brightness(0.8);
 	}
 </style>
 
@@ -614,7 +589,12 @@
 				{:else}
 					<Badge variant="warning">Syncing {validationProgress.toFixed(1)}%</Badge>
 				{/if}
-				<span class="text-xs text-echo-dim font-mono">{modeLabel}</span>
+				<!-- Subtle phase indicator -->
+				{#if !loading && !error && syncMode !== 'DONE' && syncMode !== 'IDLE'}
+					<span class="text-xs text-echo-dim font-mono px-2 py-0.5 rounded bg-echo-surface">
+						{syncMode}
+					</span>
+				{/if}
 			</div>
 		</div>
 
@@ -633,63 +613,94 @@
 			<span class="ml-3 text-echo-muted">Connecting to node...</span>
 		</div>
 	{:else}
-		<!-- Timeline Progress Bar (hidden during headers phase - no blocks validated yet) -->
+		<!-- Dual Progress Bars (hidden during headers phase) -->
 		{#if !isHeadersPhase}
 		<Card>
-			<!-- Progress bar section -->
-			<div class="mb-6">
-				<div class="flex justify-between items-baseline mb-2">
-					<span class="text-sm text-echo-muted">Timeline: 2009 to Present</span>
-					<span class="text-sm font-mono text-echo-text">
-						{formatNumber(displayedValidated)} / {formatNumber(networkHeight)} blocks
-					</span>
-				</div>
-
-				<!-- Progress bar container -->
-				<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
-					<!-- Validated progress (tweened for smooth animation) -->
-					<div
-						class="absolute left-0 top-0 h-full bg-gradient-to-r from-echo-accent to-emerald-500 rounded-full"
-						style="width: {displayedBlocksProgressBarWidth}"
-					></div>
-				</div>
-
-				<!-- Timeline markers -->
-				<div class="relative h-8 mt-1">
-					<span class="timeline-marker left-0 text-echo-dim">2009</span>
-					<span class="timeline-marker text-echo-dim" style="left: 25%">2013</span>
-					<span class="timeline-marker text-echo-dim" style="left: 50%">2017</span>
-					<span class="timeline-marker text-echo-dim" style="left: 75%">2021</span>
-					<span class="timeline-marker right-0 text-echo-text" style="left: 100%">Now</span>
-
-					<!-- Current position marker -->
-					{#if validationProgress > 0 && validationProgress < 100}
-						<span
-							class="timeline-marker text-echo-accent font-bold"
-							style="left: {progressBarWidth}"
-						>
-							You
+			<!-- Dual progress bars section -->
+			<div class="space-y-4 mb-6">
+				<!-- Downloaded progress (blue) -->
+				<div>
+					<div class="flex justify-between items-baseline mb-1.5">
+						<span class="text-sm font-medium {isDownloadActive(syncMode) ? 'text-blue-400' : 'text-blue-400/50'}">
+							Downloaded
 						</span>
-					{/if}
+						<span class="text-sm font-mono text-echo-text">
+							{formatNumber(displayedDownloaded)} / {formatNumber(networkHeight)}
+							<span class="text-echo-dim">({displayedDownloadProgress.toFixed(1)}%)</span>
+						</span>
+					</div>
+					<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
+						<div
+							class="absolute left-0 top-0 h-full rounded-full transition-all duration-300
+								{isDownloadActive(syncMode)
+									? 'bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 bar-active'
+									: 'bg-gradient-to-r from-blue-600 to-blue-400 bar-static'}"
+							style="width: {displayedDownloadProgressBarWidth}"
+						></div>
+					</div>
+				</div>
+
+				<!-- Validated progress (green) -->
+				<div>
+					<div class="flex justify-between items-baseline mb-1.5">
+						<span class="text-sm font-medium {isValidationActive(syncMode) ? 'text-emerald-400' : 'text-emerald-400/50'}">
+							Validated
+						</span>
+						<span class="text-sm font-mono text-echo-text">
+							{formatNumber(displayedValidated)} / {formatNumber(networkHeight)}
+							<span class="text-echo-dim">({displayedValidationProgress.toFixed(1)}%)</span>
+						</span>
+					</div>
+					<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
+						<div
+							class="absolute left-0 top-0 h-full rounded-full transition-all duration-300
+								{isValidationActive(syncMode)
+									? 'bg-gradient-to-r from-emerald-600 via-emerald-400 to-emerald-600 bar-active'
+									: 'bg-gradient-to-r from-emerald-600 to-emerald-400 bar-static'}"
+							style="width: {displayedValidationProgressBarWidth}"
+						></div>
+					</div>
 				</div>
 			</div>
 
-			<!-- Stats grid - all key metrics in one place (tweened for smooth animation) -->
-			<div class="grid grid-cols-3 md:grid-cols-6 gap-4 pt-4 border-t border-echo-border">
+			<!-- Timeline markers -->
+			<div class="relative h-8 mb-4">
+				<span class="timeline-marker left-0 text-echo-dim">2009</span>
+				<span class="timeline-marker text-echo-dim" style="left: 25%">2013</span>
+				<span class="timeline-marker text-echo-dim" style="left: 50%">2017</span>
+				<span class="timeline-marker text-echo-dim" style="left: 75%">2021</span>
+				<span class="timeline-marker right-0 text-echo-text" style="left: 100%">Now</span>
+
+				<!-- Current position marker (tied to validation, not download) -->
+				{#if validationProgress > 0 && validationProgress < 100}
+					<span
+						class="timeline-marker text-emerald-400 font-bold"
+						style="left: {progressBarWidth}"
+					>
+						You
+					</span>
+				{/if}
+			</div>
+
+			<!-- Stats grid - row 1: counts and rates -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-echo-border">
 				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Downloaded</div>
+					<div class="text-xs {isDownloadActive(syncMode) ? 'text-blue-400' : 'text-echo-dim'} mb-1">Downloaded</div>
 					<div class="text-xl font-light text-echo-text">{formatNumber(displayedDownloaded)}</div>
-					<div class="text-xs text-echo-muted">{formatNumber(blocksRemaining)} to go</div>
+					<div class="text-xs text-echo-muted">
+						{isDownloadActive(syncMode) && displayedDownloadRate > 0
+							? `${formatRate(displayedDownloadRate)} blk/s`
+							: 'idle'}
+					</div>
 				</div>
 				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Validated</div>
+					<div class="text-xs {isValidationActive(syncMode) ? 'text-emerald-400' : 'text-echo-dim'} mb-1">Validated</div>
 					<div class="text-xl font-light text-echo-text">{formatNumber(displayedValidated)}</div>
-					<div class="text-xs text-echo-muted">{formatDate(estimatedDate)}</div>
-				</div>
-				<div class="text-center">
-					<div class="text-xs text-echo-dim mb-1">Pending</div>
-					<div class="text-xl font-light text-echo-text">{formatNumber(displayedPending)}</div>
-					<div class="text-xs text-echo-muted">awaiting validation</div>
+					<div class="text-xs text-echo-muted">
+						{isValidationActive(syncMode) && displayedValidationRate > 0
+							? `${formatRate(displayedValidationRate)} blk/s`
+							: formatDate(estimatedDate)}
+					</div>
 				</div>
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">ETA</div>
@@ -697,7 +708,7 @@
 						{#if displayedBlockEta > 0}
 							{formatDuration(displayedBlockEta * 1000)}
 						{:else}
-							Calculating...
+							--
 						{/if}
 					</div>
 					<div class="text-xs text-echo-muted">{validationProgress.toFixed(1)}% complete</div>
@@ -705,7 +716,38 @@
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Peers</div>
 					<div class="text-xl font-light text-echo-text">{displayedPeerCount}</div>
-					<div class="text-xs text-echo-muted">connected</div>
+					<div class="text-xs text-echo-muted">{syncStatus?.active_sync_peers ?? 0} syncing</div>
+				</div>
+			</div>
+
+			<!-- Stats grid - row 2: storage and uptime -->
+			<div class="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 mt-4 border-t border-echo-border">
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Disk Usage</div>
+					{#if isPrunedNode}
+						<div class="text-xl font-light text-echo-text">{formatBytes(displayedStorageUsed)}</div>
+						<div class="text-xs text-echo-muted">/ {formatBytes(storagePruneTarget)}</div>
+						<!-- Mini storage bar -->
+						<div class="mt-1 h-1 bg-echo-surface rounded-full overflow-hidden">
+							<div
+								class="h-full rounded-full transition-all duration-300 {storagePercentage > 90 ? 'bg-amber-500' : 'bg-echo-accent'}"
+								style="width: {Math.min(storagePercentage, 100)}%"
+							></div>
+						</div>
+					{:else}
+						<div class="text-xl font-light text-echo-text">{formatBytes(displayedStorageUsed)}</div>
+						<div class="text-xs text-echo-muted">archival</div>
+					{/if}
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">Remaining</div>
+					<div class="text-xl font-light text-echo-text">{formatNumber(blocksRemaining)}</div>
+					<div class="text-xs text-echo-muted">blocks</div>
+				</div>
+				<div class="text-center">
+					<div class="text-xs text-echo-dim mb-1">History Date</div>
+					<div class="text-xl font-light text-echo-text">{formatDate(estimatedDate)}</div>
+					<div class="text-xs text-echo-muted">validating</div>
 				</div>
 				<div class="text-center">
 					<div class="text-xs text-echo-dim mb-1">Uptime</div>
@@ -716,7 +758,7 @@
 		</Card>
 		{/if}
 
-		<!-- Headers-First Sync Phase (shown when downloading headers before blocks) -->
+		<!-- Headers-First Sync Phase -->
 		{#if isHeadersPhase}
 			<Card>
 				<div class="border-l-4 border-amber-500 pl-4">
@@ -743,7 +785,7 @@
 						</div>
 						<div class="h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
 							<div
-								class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full"
+								class="h-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 rounded-full bar-active"
 								style="width: {displayedHeaderProgressBarWidth}"
 							></div>
 						</div>
@@ -766,7 +808,7 @@
 						<div>
 							<div class="text-xs text-echo-dim mb-1">ETA</div>
 							<div class="font-mono text-echo-text">
-								{displayedHeaderEta > 0 ? formatDuration(displayedHeaderEta * 1000) : 'Calculating...'}
+								{displayedHeaderEta > 0 ? formatDuration(displayedHeaderEta * 1000) : '--'}
 							</div>
 						</div>
 					</div>
@@ -776,7 +818,7 @@
 					</p>
 				</div>
 
-				<!-- Stats grid during headers phase - show peers/uptime, emdash for block metrics -->
+				<!-- Stats during headers phase -->
 				<div class="grid grid-cols-3 md:grid-cols-6 gap-4 pt-4 mt-4 border-t border-echo-border">
 					<div class="text-center">
 						<div class="text-xs text-echo-dim mb-1">Downloaded</div>
@@ -789,14 +831,14 @@
 						<div class="text-xs text-echo-muted">waiting</div>
 					</div>
 					<div class="text-center">
-						<div class="text-xs text-echo-dim mb-1">Pending</div>
-						<div class="text-xl font-light text-echo-text">—</div>
-						<div class="text-xs text-echo-muted">waiting</div>
-					</div>
-					<div class="text-center">
-						<div class="text-xs text-echo-dim mb-1">ETA</div>
+						<div class="text-xs text-echo-dim mb-1">Blocks ETA</div>
 						<div class="text-xl font-light text-echo-text">—</div>
 						<div class="text-xs text-echo-muted">phase 2</div>
+					</div>
+					<div class="text-center">
+						<div class="text-xs text-echo-dim mb-1">Storage</div>
+						<div class="text-xl font-light text-echo-text">{formatBytes(displayedStorageUsed)}</div>
+						<div class="text-xs text-echo-muted">{isPrunedNode ? 'pruned' : 'archival'}</div>
 					</div>
 					<div class="text-center">
 						<div class="text-xs text-echo-dim mb-1">Peers</div>
@@ -812,7 +854,7 @@
 			</Card>
 		{/if}
 
-		<!-- Milestone Notification (appears when passing a milestone) -->
+		<!-- Milestone Notification -->
 		{#if currentMilestoneNotification}
 			<MilestoneNotification
 				milestone={currentMilestoneNotification}
@@ -820,7 +862,7 @@
 			/>
 		{/if}
 
-		<!-- Chain Details (collapsible) -->
+		<!-- Chain Details -->
 		<Card>
 			<h2 class="text-lg font-light text-echo-text mb-4">Chain Details</h2>
 
@@ -828,7 +870,7 @@
 				<div class="space-y-3">
 					<div class="flex justify-between">
 						<span class="text-echo-muted">Network Height</span>
-						<span class="font-mono text-echo-text">{formatNumber(displayedHeaderCount)}</span>
+						<span class="font-mono text-echo-text">{formatNumber(networkHeight)}</span>
 					</div>
 					<div class="flex justify-between">
 						<span class="text-echo-muted">Best Block Difficulty</span>
@@ -853,7 +895,7 @@
 					<div class="flex justify-between">
 						<span class="text-echo-muted">Pruning</span>
 						<span class="font-mono text-echo-text">
-							{chainInfo?.pruned ? 'Enabled' : 'Disabled'}
+							{isPrunedNode ? `Enabled (${formatBytes(storagePruneTarget)})` : 'Disabled'}
 						</span>
 					</div>
 					{#if chainInfo?.pruned && chainInfo.pruneheight !== undefined}
@@ -866,7 +908,7 @@
 			</div>
 		</Card>
 
-		<!-- Currently Validating Indicator -->
+		<!-- Activity Indicator -->
 		{#if isHeadersPhase}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
@@ -876,21 +918,72 @@
 					</p>
 				</div>
 			</div>
-		{:else if !isSynced()}
+		{:else if syncMode === 'DONE' || isSynced()}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
-					<div class="w-2 h-2 rounded-full bg-echo-accent animate-pulse"></div>
+					<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+					<p class="text-sm text-echo-text font-mono">
+						Fully synced — validating new blocks as they arrive
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'DOWNLOAD'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
 					<p class="text-sm text-echo-muted font-mono">
-						Validating block #{formatNumber(displayedValidated)}...
+						Downloading blocks... {formatNumber(displayedDownloaded)} received
+						{#if displayedDownloadRate > 0}
+							at {formatRate(displayedDownloadRate)} blk/s
+						{/if}
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'DRAIN'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-gray-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Waiting for in-flight requests to complete...
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'VALIDATE'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Validating blocks... {formatNumber(displayedValidated)} verified
+						{#if displayedValidationRate > 0}
+							at {formatRate(displayedValidationRate)} blk/s
+						{/if}
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'FLUSH'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-gray-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Flushing UTXO changes to database...
+					</p>
+				</div>
+			</div>
+		{:else if syncMode === 'PRUNE'}
+			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
+				<div class="flex items-center gap-3">
+					<div class="w-2 h-2 rounded-full bg-gray-500 animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Pruning old block files to free space...
 					</p>
 				</div>
 			</div>
 		{:else}
 			<div class="bg-echo-surface border border-echo-border rounded px-4 py-3">
 				<div class="flex items-center gap-3">
-					<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
-					<p class="text-sm text-echo-text font-mono">
-						Fully synced - validating new blocks as they arrive
+					<div class="w-2 h-2 rounded-full bg-echo-accent animate-pulse"></div>
+					<p class="text-sm text-echo-muted font-mono">
+						Syncing... {formatNumber(displayedValidated)} blocks validated
 					</p>
 				</div>
 			</div>
@@ -904,7 +997,6 @@
 				</h3>
 
 				<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-					<!-- Last Passed Milestone -->
 					{#if lastMilestone}
 						{@const categoryInfo = CATEGORY_INFO[lastMilestone.category]}
 						<a
@@ -940,10 +1032,9 @@
 						</a>
 					{/if}
 
-					<!-- Next Upcoming Milestone -->
 					{#if nextMilestone}
 						{@const categoryInfo = CATEGORY_INFO[nextMilestone.category]}
-						{@const blocksAway = nextMilestone.height - validatedHeight}
+						{@const blocksAway = nextMilestone.height - blocksValidated}
 						<a
 							href={getMilestoneUrl(nextMilestone)}
 							target="_blank"
