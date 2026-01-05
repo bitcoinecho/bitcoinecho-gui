@@ -193,7 +193,7 @@
 	function getPhaseColor(mode: SyncMode): string {
 		switch (mode) {
 			case 'DOWNLOAD': return 'blue';
-			case 'DRAIN': return 'gray';
+			case 'DRAIN': return 'orange';
 			case 'VALIDATE': return 'emerald';
 			case 'FLUSH': return 'gray';
 			case 'PRUNE': return 'gray';
@@ -387,14 +387,24 @@
 	const displayedValidationProgress = $derived(networkHeight > 0 ? (displayedValidated / networkHeight) * 100 : 0);
 	const displayedValidationProgressBarWidth = $derived(`${Math.min(displayedValidationProgress, 100)}%`);
 
-	// DRAIN progress bar - shows remaining blocks shrinking from right to left
-	// Total blocks to drain = drain_target - validated_tip
-	const drainTotal = $derived(drainTarget > blocksValidated ? drainTarget - blocksValidated : 0);
+	// DRAIN progress bar - starts full, empties as gaps are filled (right to left)
+	// drainRemaining = gaps still to fill (from RPC)
+	// Track initial gap count when entering DRAIN to calculate percentage
+	let drainStartGaps = $state(0);
+	$effect(() => {
+		// Capture initial gap count when entering DRAIN
+		if (syncMode === 'DRAIN' && drainRemaining > 0 && drainStartGaps === 0) {
+			drainStartGaps = drainRemaining;
+		} else if (syncMode !== 'DRAIN') {
+			drainStartGaps = 0;
+		}
+	});
+	const drainGapsTotal = $derived(drainStartGaps > 0 ? drainStartGaps : drainRemaining);
 	const displayedDrainRemaining = $derived(tweenValue(prevDrainRemaining, drainRemaining));
-	// Percentage of drain remaining (100% = all blocks needed, 0% = drain complete)
-	const drainRemainingPercent = $derived(drainTotal > 0 ? (displayedDrainRemaining / drainTotal) * 100 : 0);
+	// Percentage of gaps remaining (100% = just started, 0% = all gaps filled)
+	const drainRemainingPercent = $derived(drainGapsTotal > 0 ? (displayedDrainRemaining / drainGapsTotal) * 100 : 0);
 	const drainProgressBarWidth = $derived(`${Math.min(drainRemainingPercent, 100)}%`);
-	const isDraining = $derived(syncMode === 'DRAIN' && drainTotal > 0);
+	const isDraining = $derived(syncMode === 'DRAIN' && drainRemaining > 0);
 
 	// Header sync tweened display values
 	const displayedHeaderCount = $derived(tweenValue(prevHeaderCount, headerCount));
@@ -682,23 +692,23 @@
 					</div>
 				</div>
 
-				<!-- DRAIN progress (amber bar, fills from right, shrinks as blocks arrive) -->
+				<!-- DRAIN progress (orange bar, starts full, drains to empty as gaps are filled) -->
 				{#if isDraining}
 				<div>
 					<div class="flex justify-between items-baseline mb-1.5">
-						<span class="text-sm font-medium text-amber-400">
-							Draining
+						<span class="text-sm font-medium text-orange-400">
+							Filling Gaps
 						</span>
 						<span class="text-sm font-mono text-echo-text">
-							{formatNumber(Math.round(displayedDrainRemaining))} remaining
-							<span class="text-echo-dim">of {formatNumber(drainTotal)}</span>
+							{formatNumber(Math.round(displayedDrainRemaining))} gaps
+							<span class="text-echo-dim">of {formatNumber(drainGapsTotal)}</span>
 						</span>
 					</div>
 					<div class="relative h-3 bg-echo-surface rounded-full border border-echo-border overflow-hidden">
-						<!-- Bar fills from RIGHT side and shrinks toward left as blocks arrive -->
+						<!-- Bar starts full from left, shrinks right as gaps are filled -->
 						<div
-							class="absolute right-0 top-0 h-full rounded-full transition-all duration-300
-								bg-gradient-to-l from-amber-600 via-amber-400 to-amber-600 bar-active"
+							class="absolute left-0 top-0 h-full rounded-full transition-all duration-300
+								bg-gradient-to-r from-orange-600 via-orange-400 to-orange-600 bar-active"
 							style="width: {drainProgressBarWidth}"
 						></div>
 					</div>
